@@ -1,0 +1,59 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isVerified() {
+      return request.auth.token.email_verified == true;
+    }
+
+    // User profiles
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isOwner(userId);
+
+      match /friends/{friendId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+
+    match /messages/{messageId} {
+      allow read: if isSignedIn() && (resource.data.from == request.auth.uid || resource.data.to == request.auth.uid);
+      allow create: if isSignedIn() && (request.resource.data.from == request.auth.uid) && exists(/databases/$(database)/documents/users/$(request.auth.uid)/friends/$(request.resource.data.to));
+      allow update: if isSignedIn() && (resource.data.to == request.auth.uid) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
+    }
+
+    // Albums
+    match /albums/{albumId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid && request.resource.data.userId == request.auth.uid;
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+
+      // Stickers subcollection
+      match /inventory/{stickerCode} {
+        allow read: if isSignedIn();
+        allow write: if isSignedIn() && (
+          get(/databases/$(database)/documents/albums/$(albumId)).data.userId == request.auth.uid ||
+          exists(/databases/$(database)/documents/users/$(get(/databases/$(database)/documents/albums/$(albumId)).data.userId)/friends/$(request.auth.uid))
+        );
+      }
+    }
+  }
+}

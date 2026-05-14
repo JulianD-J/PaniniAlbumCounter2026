@@ -1,0 +1,79 @@
+{
+  "entities": {
+    "Album": {
+      "title": "Album",
+      "description": "A Panini album owned by a user.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "The owner of the album." },
+        "name": { "type": "string", "description": "Name of the album (e.g., 'Mi Álbum')." },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "name", "createdAt", "updatedAt"]
+    },
+    "Sticker": {
+      "title": "Sticker",
+      "description": "A sticker's status within an album.",
+      "type": "object",
+      "properties": {
+        "status": { "type": "string", "enum": ["missing", "obtained", "repeated"] },
+        "count": { "type": "number", "description": "Number of pieces if repeated." }
+      },
+      "required": ["status", "count"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Public profile data for a user.",
+      "type": "object",
+      "properties": {
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "email": { "type": "string" },
+        "normalizedName": { "type": "string", "description": "Lowercase name without accents for search." },
+        "badges": { "type": "array", "items": { "type": "string" } },
+        "stats": {
+          "type": "object",
+          "properties": {
+            "completedSwaps": { "type": "number" },
+            "completionPercentage": { "type": "number" }
+          }
+        }
+      }
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profiles."
+    },
+    "albums/{albumId}": {
+      "schema": "Album",
+      "description": "User albums."
+    },
+    "albums/{albumId}/inventory/{stickerCode}": {
+      "schema": "Sticker",
+      "description": "Inventory of stickers in an album."
+    },
+    "users/{userId}/friends/{friendId}": {
+      "schema": { "type": "object", "properties": { "addedAt": { "type": "string", "format": "date-time" } } },
+      "description": "User's favorite friends."
+    },
+    "messages/{messageId}": {
+      "schema": { 
+        "type": "object", 
+        "properties": { 
+          "from": { "type": "string" },
+          "to": { "type": "string" },
+          "text": { "type": "string" },
+          "status": { "type": "string", "enum": ["pending", "completed"] },
+          "type": { "type": "string" },
+          "give": { "type": "array", "items": { "type": "string" } },
+          "get": { "type": "array", "items": { "type": "string" } },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "description": "Direct messages and swap requests between friends."
+    }
+  }
+}

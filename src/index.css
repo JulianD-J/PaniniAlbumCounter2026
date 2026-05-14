@@ -1,0 +1,29 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  
+  --color-fifa-gold: #D4AF37;
+  --color-fifa-red: #E10600;
+  --color-dark-bg: #0A0A0B;
+  --color-dark-card: #161618;
+}
+
+body {
+  @apply bg-dark-bg text-gray-100 font-sans;
+}
+
+.gradient-gold {
+  background: linear-gradient(135deg, #D4AF37 0%, #F1D592 50%, #D4AF37 100%);
+}
+
+.fifa-card {
+  @apply bg-dark-card border border-white/5 rounded-xl transition-all duration-300;
+}
+
+.fifa-card:hover {
+  @apply border-white/10;
+}
+
