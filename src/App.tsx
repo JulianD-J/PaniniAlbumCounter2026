@@ -49,7 +49,10 @@ import {
   Activity,
   ArrowRight,
   Key,
-  Lock
+  Lock,
+  Wifi,
+  WifiOff,
+  CloudOff
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -880,6 +883,7 @@ export default function App() {
   const [passwordSuccess, setPasswordSuccess] = useState(false);
   const [loadingRanking, setLoadingRanking] = useState(false);
   const [userProfile, setUserProfile] = useState<any>(null);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [pendingMessages, setPendingMessages] = useState<any[]>([]);
   const quickInputTimeout = useRef<any>(null);
   
@@ -894,11 +898,14 @@ export default function App() {
       setUser(u);
       setLoading(false);
       if (u) {
-        albumService.saveUserProfile(u.uid, {
-          displayName: u.displayName,
-          email: u.email,
-          photoURL: u.photoURL
-        });
+        // Only save profile and setup real-time listeners if online
+        if (navigator.onLine) {
+          albumService.saveUserProfile(u.uid, {
+            displayName: u.displayName,
+            email: u.email,
+            photoURL: u.photoURL
+          });
+        }
         
         // Listen to user profile for badges/stats
         const unsubUser = onSnapshot(doc(db, 'users', u.uid), (doc) => {
@@ -917,6 +924,19 @@ export default function App() {
       }
     });
     return unsub;
+  }, []);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
   }, []);
 
   useEffect(() => {
@@ -993,6 +1013,10 @@ export default function App() {
 
   const handleCreateAlbum = async () => {
     if (!user || albums.length >= 2) return;
+    if (!isOnline) {
+      setError("No puedes crear álbumes sin conexión a internet.");
+      return;
+    }
     const name = albums.length === 0 
       ? `Álbum de ${user.displayName || user.email?.split('@')[0]}` 
       : `Álbum secundario de ${user.displayName || user.email?.split('@')[0]}`;
@@ -1111,6 +1135,10 @@ export default function App() {
 
   const handleUpdatePassword = async () => {
     if (!user || !newPassword) return;
+    if (!isOnline) {
+      setPasswordError("No puedes cambiar la contraseña sin conexión a internet.");
+      return;
+    }
     if (newPassword.length < 6) {
       setPasswordError("La contraseña debe tener al menos 6 caracteres");
       return;
@@ -1373,6 +1401,21 @@ export default function App() {
         </div>
       </header>
 
+      {/* Banner Offline */}
+      <AnimatePresence>
+        {!isOnline && (
+          <motion.div 
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="bg-fifa-red text-white text-[10px] sm:text-xs font-bold py-2 px-4 flex items-center justify-center gap-2 sticky top-0 z-[120] shadow-lg uppercase tracking-wider"
+          >
+            <WifiOff size={14} className="animate-pulse" />
+            <span>Modo Offline: Los cambios se sincronizarán al recuperar internet. Solo edición de láminas disponible.</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <main className="max-w-5xl mx-auto px-4 mt-8">
         {/* Profile Card */}
         <div className="fifa-card p-6 mb-8 relative overflow-hidden">
@@ -1384,8 +1427,8 @@ export default function App() {
             <div className="flex-1">
               <div className="flex items-center gap-3 mb-6">
                 <div 
-                  onClick={() => isGoogleUser && setShowPasswordModal(true)}
-                  className={`w-12 h-12 rounded-full border-2 border-fifa-gold overflow-hidden bg-white/10 flex items-center justify-center relative ${isGoogleUser ? 'cursor-pointer hover:scale-105 transition-transform' : ''}`}
+                  onClick={() => isGoogleUser && isOnline && setShowPasswordModal(true)}
+                  className={`w-12 h-12 rounded-full border-2 border-fifa-gold overflow-hidden bg-white/10 flex items-center justify-center relative ${isGoogleUser && isOnline ? 'cursor-pointer hover:scale-105 transition-transform' : 'cursor-default'}`}
                 >
                   {user.photoURL ? (
                     <img src={user.photoURL} className="w-full h-full object-cover" alt={user.displayName || ''} />
@@ -1644,8 +1687,8 @@ export default function App() {
           <span className="text-[8px] font-bold uppercase">Stats</span>
         </button>
         <button 
-          onClick={() => setView('community')}
-          className={`relative flex flex-col items-center gap-1 ${view === 'community' ? 'text-fifa-gold' : ''}`}
+          onClick={() => isOnline && setView('community')}
+          className={`relative flex flex-col items-center gap-1 ${view === 'community' ? 'text-fifa-gold' : ''} ${!isOnline ? 'opacity-30 grayscale' : ''}`}
         >
           <Users size={24} />
           {pendingMessages.length > 0 && (
@@ -1655,7 +1698,11 @@ export default function App() {
           )}
           <span className="text-[8px] font-bold uppercase">Bazar</span>
         </button>
-        <button onClick={loadRanking} className="flex flex-col items-center gap-1">
+        <button 
+          onClick={loadRanking} 
+          disabled={!isOnline}
+          className={`flex flex-col items-center gap-1 ${!isOnline ? 'opacity-30 grayscale' : ''}`}
+        >
           <TrendingUp size={24} />
           <span className="text-[8px] font-bold uppercase">Ranking</span>
         </button>
