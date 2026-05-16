@@ -6,24 +6,82 @@
   --font-display: "Space Grotesk", sans-serif;
   
   --color-fifa-gold: #D4AF37;
+  --color-fifa-gold-light: #F1D592;
   --color-fifa-red: #E10600;
+  --color-fifa-red-dark: #9B0400;
   --color-dark-bg: #0A0A0B;
   --color-dark-card: #161618;
+  --color-dark-border: rgba(255, 255, 255, 0.08);
+
+  --animate-shimmer: shimmer 2.5s infinite linear;
+  --animate-float: float 6s ease-in-out infinite;
+  
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+  }
 }
 
 body {
-  @apply bg-dark-bg text-gray-100 font-sans;
+  @apply bg-dark-bg text-gray-100 font-sans overflow-x-hidden;
+  background-image: 
+    radial-gradient(circle at 0% 0%, rgba(225, 6, 0, 0.05) 0%, transparent 50%),
+    radial-gradient(circle at 100% 100%, rgba(212, 175, 55, 0.05) 0%, transparent 50%);
+  background-attachment: fixed;
+}
+
+.glass {
+  @apply bg-white/5 backdrop-blur-md border border-white/10;
+}
+
+.glass-gold {
+  @apply bg-fifa-gold/5 backdrop-blur-md border border-fifa-gold/20;
 }
 
 .gradient-gold {
   background: linear-gradient(135deg, #D4AF37 0%, #F1D592 50%, #D4AF37 100%);
+  background-size: 200% auto;
+}
+
+.gradient-red {
+  background: linear-gradient(135deg, #E10600 0%, #FF4D4D 50%, #E10600 100%);
+  background-size: 200% auto;
 }
 
 .fifa-card {
-  @apply bg-dark-card border border-white/5 rounded-xl transition-all duration-300;
+  @apply bg-dark-card border border-white/5 rounded-2xl transition-all duration-300 shadow-2xl;
 }
 
 .fifa-card:hover {
-  @apply border-white/10;
+  @apply border-fifa-gold/30 -translate-y-1 shadow-fifa-gold/5;
+}
+
+.sticker-gold {
+  background: linear-gradient(135deg, #D4AF37 0%, #F1D592 50%, #D4AF37 100%);
+  @apply text-black shadow-lg shadow-fifa-gold/20;
+  animation: shimmer 5s infinite linear;
+  background-size: 200% 100%;
+}
+
+.sticker-red {
+  background: linear-gradient(135deg, #E10600 0%, #FF4D4D 50%, #E10600 100%);
+  @apply text-white shadow-lg shadow-fifa-red/20;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-white/10 rounded-full hover:bg-fifa-gold/50 transition-colors;
 }
 
