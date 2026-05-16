@@ -31,6 +31,9 @@
         "photoURL": { "type": "string" },
         "email": { "type": "string" },
         "normalizedName": { "type": "string", "description": "Lowercase name without accents for search." },
+        "isPremium": { "type": "boolean", "description": "Whether the user has purchased premium access." },
+        "premiumUntil": { "type": "string", "format": "date-time", "description": "Expiration date for premium (if applicable)." },
+        "purchaseToken": { "type": "string", "description": "Last valid Google Play purchase token." },
         "badges": { "type": "array", "items": { "type": "string" } },
         "stats": {
           "type": "object",

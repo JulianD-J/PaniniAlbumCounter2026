@@ -53,7 +53,10 @@ import {
   Lock,
   Wifi,
   WifiOff,
-  CloudOff
+  CloudOff,
+  Diamond,
+  ShieldCheck,
+  AlertTriangle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -89,6 +92,163 @@ const ProgressBar = ({ current, total, color = "bg-fifa-gold" }: { current: numb
         className={`h-full ${color}`}
       />
     </div>
+  );
+};
+
+const PremiumModal = ({ isOpen, onClose, onUpgrade, loading }: { isOpen: boolean, onClose: () => void, onUpgrade: () => void, loading: boolean }) => {
+  const { t } = useTranslation();
+  if (!isOpen) return null;
+
+  return (
+    <AnimatePresence>
+      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+        <motion.div 
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          onClick={onClose}
+          className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        />
+        <motion.div 
+          initial={{ scale: 0.9, y: 20, opacity: 0 }}
+          animate={{ scale: 1, y: 0, opacity: 1 }}
+          exit={{ scale: 0.9, y: 20, opacity: 0 }}
+          className="relative w-full max-w-md bg-dark-card border border-fifa-gold/30 rounded-3xl overflow-hidden shadow-2xl shadow-fifa-gold/20"
+        >
+          {/* Header Image/Gradient */}
+          <div className="h-32 bg-gradient-to-br from-fifa-gold to-fifa-gold-light p-6 flex flex-col justify-end">
+            <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-black/20 hover:bg-black/40 rounded-full transition-colors">
+              <X size={20} className="text-white" />
+            </button>
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-black/20 rounded-xl backdrop-blur-md">
+                <Diamond className="text-white" size={24} />
+              </div>
+              <h2 className="text-2xl font-display font-bold text-black">{t('album.premium_modal_title')}</h2>
+            </div>
+          </div>
+
+          <div className="p-8 space-y-6">
+            <div className="space-y-4">
+              {[
+                { icon: WifiOff, text: t('album.premium_modal_feature_offline'), color: "text-blue-400" },
+                { icon: BarChart3, text: t('album.premium_modal_feature_stats'), color: "text-fifa-gold" },
+                { icon: ShieldCheck, text: t('album.premium_modal_feature_backup'), color: "text-green-400" },
+                { icon: Activity, text: t('album.premium_modal_feature_ads'), color: "text-purple-400" },
+              ].map((feature, i) => (
+                <div key={i} className="flex items-center gap-4">
+                  <div className={`w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center ${feature.color}`}>
+                    <feature.icon size={20} />
+                  </div>
+                  <span className="text-sm font-bold text-gray-300">{feature.text}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="pt-6 border-t border-white/5 text-center">
+              <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-4">
+                {t('album.premium_modal_disclaimer')}
+              </p>
+              <button 
+                onClick={onUpgrade}
+                disabled={loading}
+                className="w-full bg-fifa-gold text-black font-black py-4 rounded-2xl hover:scale-[1.02] active:scale-[0.98] transition-all shadow-xl shadow-fifa-gold/20 flex items-center justify-center gap-3 disabled:opacity-50"
+              >
+                {loading ? (
+                  <div className="w-6 h-6 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+                ) : (
+                  <>
+                    <ShieldCheck size={20} />
+                    {t('album.premium_upgrade_button', { price: t('album.premium_price') })}
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+    </AnimatePresence>
+  );
+};
+
+const PremiumGuard = ({ 
+  isPremium, 
+  children, 
+  onUpgrade,
+  titleKey = "album.premium_lock_title",
+  descKey = "album.premium_lock_desc"
+}: { 
+  isPremium: boolean, 
+  children: React.ReactNode, 
+  onUpgrade: () => void,
+  titleKey?: string,
+  descKey?: string
+}) => {
+  const { t } = useTranslation();
+  
+  if (isPremium) return <>{children}</>;
+
+  return (
+    <div className="relative group">
+      <div className="blur-md pointer-events-none select-none opacity-40">
+        {children}
+      </div>
+      <div className="absolute inset-0 flex items-center justify-center z-10 p-4">
+        <motion.div 
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="fifa-card p-8 bg-black/80 backdrop-blur-xl border-fifa-gold/30 shadow-2xl shadow-fifa-gold/10 text-center max-w-sm"
+        >
+          <div className="w-16 h-16 bg-fifa-gold/20 rounded-2xl flex items-center justify-center mx-auto mb-6 border border-fifa-gold/30">
+            <Diamond className="text-fifa-gold" size={32} />
+          </div>
+          <h3 className="text-xl font-display font-bold text-white mb-2">{t(titleKey)}</h3>
+          <p className="text-sm text-gray-400 mb-6">
+            {t(descKey, { price: t('album.premium_price') })}
+          </p>
+          <button 
+            onClick={onUpgrade}
+            className="w-full bg-fifa-gold text-black font-bold py-3 rounded-xl hover:scale-105 transition-all shadow-lg flex items-center justify-center gap-2"
+          >
+            <ShieldCheck size={20} />
+            {t('album.premium_upgrade_button', { price: t('album.premium_price') })}
+          </button>
+        </motion.div>
+      </div>
+    </div>
+  );
+};
+
+const PremiumBanner = ({ onUpgrade, type = 'stats' }: { onUpgrade: () => void, type?: 'stats' | 'offline' }) => {
+  const { t } = useTranslation();
+  return (
+    <motion.div 
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      whileHover={{ scale: 1.02 }}
+      onClick={onUpgrade}
+      className={`relative overflow-hidden p-4 rounded-2xl border cursor-pointer group transition-all mb-4
+        ${type === 'stats' ? 'bg-gradient-to-r from-fifa-gold/20 to-transparent border-fifa-gold/30' : 'bg-gradient-to-r from-blue-500/20 to-transparent border-blue-500/30'}
+      `}
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className={`p-2 rounded-lg ${type === 'stats' ? 'bg-fifa-gold/20' : 'bg-blue-500/20'}`}>
+            {type === 'stats' ? <BarChart3 className="text-fifa-gold" size={20} /> : <Wifi className="text-blue-500" size={20} />}
+          </div>
+          <div>
+            <p className="text-sm font-bold text-white">
+              {type === 'stats' ? t('album.premium_banner_stats') : t('album.premium_banner_offline')}
+            </p>
+            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">{t('album.premium_button')} {t('album.premium_price')}</p>
+          </div>
+        </div>
+        <ArrowRight className="text-gray-500 group-hover:translate-x-1 transition-transform" size={20} />
+      </div>
+      
+      {/* Animated Shine */}
+      <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full animate-shimmer pointer-events-none" style={{ animationDuration: '4s' }} />
+    </motion.div>
   );
 };
 
@@ -299,7 +459,7 @@ const Section = ({
   );
 };
 
-const StatsTab = ({ inventory }: { inventory: Record<string, any> }) => {
+const StatsTab = ({ inventory, isPremium, onUpgrade }: { inventory: Record<string, any>, isPremium: boolean, onUpgrade: () => void }) => {
   const { t } = useTranslation();
   const stats = useMemo(() => {
     const specialsTotal = SPECIALS.length;
@@ -365,13 +525,14 @@ const StatsTab = ({ inventory }: { inventory: Record<string, any> }) => {
   };
 
   return (
-    <motion.div 
-      variants={containerVariants}
-      initial="hidden"
-      animate="visible"
-      className="space-y-8 pb-12"
-    >
-      {/* Header Overview */}
+    <PremiumGuard isPremium={isPremium} onUpgrade={onUpgrade} titleKey="album.premium_stats_exclusive">
+      <motion.div 
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+        className="space-y-8 pb-12"
+      >
+        {/* Header Overview */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
           { icon: Trophy, color: "text-fifa-gold", val: `${stats.progressPercent}%`, label: t('stats.total_progress'), bg: "bg-fifa-gold/10" },
@@ -485,7 +646,8 @@ const StatsTab = ({ inventory }: { inventory: Record<string, any> }) => {
           </div>
         </motion.div>
       </div>
-    </motion.div>
+      </motion.div>
+    </PremiumGuard>
   );
 };
 
@@ -978,9 +1140,63 @@ export default function App() {
   const [loadingRanking, setLoadingRanking] = useState(false);
   const [userProfile, setUserProfile] = useState<any>(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [upgrading, setUpgrading] = useState(false);
+  const [showPremiumModal, setShowPremiumModal] = useState(false);
   const [pendingMessages, setPendingMessages] = useState<any[]>([]);
   const quickInputTimeout = useRef<any>(null);
   
+  const isPremium = useMemo(() => userProfile?.isPremium || false, [userProfile]);
+
+  const handleUpgrade = async () => {
+    if (!user || upgrading) return;
+    setUpgrading(true);
+    try {
+      // 1. Android/iOS Bridge logic
+      // When inside an Android TWA or WebView, we listen for a JS bridge
+      console.log("Attempting Google Play Purchase...");
+      
+      let token = `mock_token_${Date.now()}`;
+      
+      // If we are in a real Android native environment with a bridge
+      // @ts-ignore
+      if (window.Android && window.Android.startPurchase) {
+        // @ts-ignore
+        token = await window.Android.startPurchase("premium_upgrade");
+      } else {
+        console.warn("No native bridge detected, using simulated token. This usually means the app is running in a browser instead of natively.");
+      }
+      
+      const { getFunctions, httpsCallable } = await import('firebase/functions');
+      const functions = getFunctions();
+      const validate = httpsCallable(functions, 'validatePurchase');
+      
+      const result = await validate({
+        purchaseToken: token,
+        productId: "premium_upgrade",
+        packageName: "com.colediverti.album2026"
+      });
+
+      if ((result.data as any).success) {
+        confetti({
+          particleCount: 200,
+          spread: 90,
+          origin: { y: 0.5 },
+          colors: ['#D4AF37', '#FFFFFF']
+        });
+        setShowPremiumModal(false);
+      } else {
+        setError((result.data as any).message || "Verification failed");
+        setTimeout(() => setError(""), 5000);
+      }
+    } catch (e: any) {
+      console.error("Upgrade failed", e);
+      setError(e.message || "An internal error occurred during payment");
+      setTimeout(() => setError(""), 5000);
+    } finally {
+      setUpgrading(false);
+    }
+  };
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -1120,6 +1336,14 @@ export default function App() {
 
   const handleUpdateSticker = (code: string, status: StickerStatus, count: number) => {
     if (!activeAlbum) return;
+    
+    // Lock offline editing behind premium
+    if (!isOnline && !isPremium) {
+      setError(t('album.premium_offline_exclusive'));
+      setTimeout(() => setError(""), 3000);
+      return;
+    }
+    
     albumService.updateSticker(activeAlbum.id, code, status, count);
   };
 
@@ -1536,7 +1760,14 @@ export default function App() {
                   )}
                 </div>
                 <div>
-                  <h2 className="font-bold text-lg">{user.displayName}</h2>
+                  <div className="flex items-center gap-2">
+                    <h2 className="font-bold text-lg">{user.displayName}</h2>
+                    {isPremium && (
+                      <span className="flex items-center gap-1 px-2 py-0.5 bg-fifa-gold text-black text-[10px] font-black rounded-full uppercase italic tracking-tighter">
+                        <Diamond size={10} /> PRO
+                      </span>
+                    )}
+                  </div>
                   <p className="text-gray-400 text-sm">{activeAlbum?.name || 'Selecciona un álbum'}</p>
                   
                   {isGoogleUser && (
@@ -1583,6 +1814,8 @@ export default function App() {
 
         {view === 'collection' && (
           <>
+              {!isPremium && <PremiumBanner onUpgrade={() => setShowPremiumModal(true)} type="offline" />}
+              
               <div className="flex flex-col gap-4 mb-8">
                 <div className="flex flex-col md:flex-row gap-4">
                   <div className="relative flex-1">
@@ -1752,7 +1985,7 @@ export default function App() {
           </>
         )}
 
-        {view === 'stats' && <StatsTab inventory={inventory} />}
+        {view === 'stats' && <StatsTab inventory={inventory} isPremium={isPremium} onUpgrade={() => setShowPremiumModal(true)} />}
 
         {view === 'community' && (
           <CommunityView 
@@ -1762,6 +1995,13 @@ export default function App() {
           />
         )}
       </main>
+
+      <PremiumModal 
+        isOpen={showPremiumModal} 
+        onClose={() => setShowPremiumModal(false)}
+        onUpgrade={handleUpgrade}
+        loading={upgrading}
+      />
 
       {/* Footer Nav for Mobile */}
       <nav className="sm:hidden fixed bottom-6 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-3xl border border-white/10 rounded-full px-6 py-4 shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center gap-8 text-gray-400 z-[100]">
