@@ -66,7 +66,8 @@ import {
   Download,
   FileText,
   Image as ImageIcon,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Zap
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -297,6 +298,8 @@ const PremiumModal = ({
                 { icon: BarChart3, text: t('album.premium_modal_feature_stats'), color: "text-fifa-gold" },
                 { icon: Download, text: t('album.premium_modal_feature_export'), color: "text-orange-400" },
                 { icon: Star, text: t('album.premium_modal_feature_creator'), color: "text-red-400" },
+                { icon: AlbumIcon, text: t('album.premium_benefit_albums'), color: "text-purple-400" },
+                { icon: Share2, text: t('album.premium_benefit_transfer'), color: "text-green-400" },
               ].map((feature, i) => (
                 <div key={i} className="flex items-center gap-4">
                   <div className={`w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center ${feature.color}`}>
@@ -680,6 +683,266 @@ const ExportActions = ({
   );
 };
 
+const CreateAlbumModal = ({ 
+  isOpen, 
+  onClose, 
+  onCreate, 
+  loading,
+  currentCount,
+  isPremium
+}: { 
+  isOpen: boolean, 
+  onClose: () => void, 
+  onCreate: (name: string, isInverse: boolean) => Promise<void>,
+  loading: boolean,
+  currentCount: number,
+  isPremium: boolean
+}) => {
+  const { t } = useTranslation();
+  const [name, setName] = useState("");
+  const [isInverse, setIsInverse] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setName(currentCount === 0 
+        ? t('nav.album') + " 1"
+        : `${t('nav.album')} ${currentCount + 1}`
+      );
+      setIsInverse(false);
+    }
+  }, [isOpen, currentCount, t]);
+
+  if (!isOpen) return null;
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (name.trim()) {
+      onCreate(name.trim(), isInverse);
+    }
+  };
+
+  return (
+    <AnimatePresence>
+      <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
+        <motion.div 
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          onClick={onClose}
+          className="absolute inset-0 bg-black/80 backdrop-blur-md"
+        />
+        <motion.div 
+          initial={{ scale: 0.9, y: 20, opacity: 0 }}
+          animate={{ scale: 1, y: 0, opacity: 1 }}
+          exit={{ scale: 0.9, y: 20, opacity: 0 }}
+          className="relative w-full max-w-md bg-dark-card border border-fifa-gold/30 rounded-3xl overflow-hidden shadow-2xl"
+        >
+          <div className="p-8 space-y-6">
+            <h3 className="text-xl font-display font-bold text-white flex items-center gap-2">
+              <AlbumIcon className="text-fifa-gold" /> {t('album.create_modal_title')}
+            </h3>
+
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">{t('album.create_name_placeholder')}</label>
+                <input 
+                  type="text" 
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  autoFocus
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:border-fifa-gold transition-all"
+                />
+              </div>
+
+              <div 
+                onClick={() => setIsInverse(!isInverse)}
+                className={`p-4 rounded-2xl border transition-all cursor-pointer flex items-start gap-3 ${isInverse ? 'bg-fifa-gold/10 border-fifa-gold' : 'bg-white/5 border-white/10'}`}
+              >
+                <div className={`mt-1 w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${isInverse ? 'bg-fifa-gold border-fifa-gold text-black' : 'border-white/20'}`}>
+                  {isInverse && <Check size={14} />}
+                </div>
+                <div>
+                  <p className={`text-sm font-bold ${isInverse ? 'text-fifa-gold' : 'text-white'}`}>{t('album.inverse_mode_label')}</p>
+                  <p className="text-[10px] text-gray-500 font-medium leading-relaxed mt-1">{t('album.inverse_mode_desc')}</p>
+                </div>
+              </div>
+
+              <div className="pt-2">
+                <button 
+                  type="submit"
+                  disabled={loading || !name.trim()}
+                  className="w-full bg-fifa-gold text-black font-black py-4 rounded-xl hover:scale-[1.02] active:scale-[0.98] transition-all shadow-xl shadow-fifa-gold/20 flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {loading ? (
+                    <div className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      <PlusCircle size={20} />
+                      {t('album.create_button')}
+                    </>
+                  )}
+                </button>
+                <button 
+                  type="button"
+                  onClick={onClose}
+                  className="w-full mt-2 py-3 text-xs font-bold text-gray-500 hover:text-white"
+                >
+                  {t('common.back')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </motion.div>
+      </div>
+    </AnimatePresence>
+  );
+};
+
+const TransferModal = ({
+  isOpen,
+  onClose,
+  albums,
+  activeAlbumId,
+  inventory,
+  onTransfer,
+  loading
+}: {
+  isOpen: boolean,
+  onClose: () => void,
+  albums: any[],
+  activeAlbumId: string,
+  inventory: Record<string, any>,
+  onTransfer: (targetAlbumId: string, stickers: { code: string, count: number }[]) => Promise<void>,
+  loading: boolean
+}) => {
+  const { t } = useTranslation();
+  const [targetAlbumId, setTargetAlbumId] = useState("");
+  const [selectedStickers, setSelectedStickers] = useState<string[]>([]);
+  
+  const repeats = Object.entries(inventory)
+    .filter(([_, data]) => data.status === 'repeated' && data.count > 1)
+    .map(([code, data]) => ({ code, count: data.count - 1 }));
+
+  useEffect(() => {
+    if (isOpen) {
+      const otherAlbums = albums.filter(a => a.id !== activeAlbumId);
+      if (otherAlbums.length > 0) {
+        setTargetAlbumId(otherAlbums[0].id);
+      }
+      setSelectedStickers([]);
+    }
+  }, [isOpen, albums, activeAlbumId]);
+
+  if (!isOpen) return null;
+
+  const toggleSticker = (code: string) => {
+    setSelectedStickers(prev => 
+      prev.includes(code) ? prev.filter(c => c !== code) : [...prev, code]
+    );
+  };
+
+  const handleTransfer = () => {
+    if (!targetAlbumId || selectedStickers.length === 0) return;
+    const stickersToMove = selectedStickers.map(code => ({ code, count: 1 }));
+    onTransfer(targetAlbumId, stickersToMove);
+  };
+
+  return (
+    <AnimatePresence>
+      <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
+        <motion.div 
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          onClick={onClose}
+          className="absolute inset-0 bg-black/80 backdrop-blur-md"
+        />
+        <motion.div 
+          initial={{ scale: 0.9, y: 20, opacity: 0 }}
+          animate={{ scale: 1, y: 0, opacity: 1 }}
+          exit={{ scale: 0.9, y: 20, opacity: 0 }}
+          className="relative w-full max-w-xl bg-dark-card border border-fifa-gold/30 rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
+        >
+          <div className="p-6 border-b border-white/5 flex items-center justify-between">
+            <h3 className="text-xl font-display font-bold text-white flex items-center gap-2">
+              <Share2 className="text-fifa-gold" /> {t('album.transfer_modal_title')}
+            </h3>
+            <button onClick={onClose} className="text-gray-500 hover:text-white"><Plus className="rotate-45" /></button>
+          </div>
+
+          <div className="p-6 flex-1 overflow-y-auto space-y-6">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">{t('album.transfer_source')}</label>
+                <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white/50">
+                  {albums.find(a => a.id === activeAlbumId)?.name}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">{t('album.transfer_target')}</label>
+                <select 
+                  value={targetAlbumId}
+                  onChange={(e) => setTargetAlbumId(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:border-fifa-gold text-sm text-white"
+                >
+                  {albums.filter(a => a.id !== activeAlbumId).map(a => (
+                    <option key={a.id} value={a.id} className="bg-dark-card">{a.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">{t('album.transfer_select_stickers')}</label>
+              {repeats.length === 0 ? (
+                <div className="p-8 text-center bg-white/5 rounded-2xl border border-dashed border-white/10">
+                  <p className="text-xs text-gray-500">{t('album.transfer_no_repeats')}</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+                  {repeats.map(sticker => (
+                    <button
+                      key={sticker.code}
+                      onClick={() => toggleSticker(sticker.code)}
+                      className={`relative aspect-square rounded-lg border transition-all flex items-center justify-center text-[10px] font-bold ${
+                        selectedStickers.includes(sticker.code)
+                          ? 'bg-fifa-gold border-fifa-gold text-black shadow-lg shadow-fifa-gold/20'
+                          : 'bg-white/5 border-white/10 text-white hover:border-white/30'
+                      }`}
+                    >
+                      {sticker.code}
+                      <div className={`absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-[8px] ${selectedStickers.includes(sticker.code) ? 'bg-black text-white' : 'bg-fifa-gold text-black'}`}>
+                        {sticker.count}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="p-6 border-t border-white/5 bg-white/5">
+            <button
+              onClick={handleTransfer}
+              disabled={loading || selectedStickers.length === 0 || !targetAlbumId}
+              className="w-full bg-fifa-gold text-black font-black py-4 rounded-xl hover:scale-[1.02] active:scale-[0.98] transition-all shadow-xl shadow-fifa-gold/20 flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {loading ? (
+                <div className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+              ) : (
+                <>
+                  <Share2 size={20} />
+                  {t('album.transfer_button')} ({selectedStickers.length})
+                </>
+              )}
+            </button>
+          </div>
+        </motion.div>
+      </div>
+    </AnimatePresence>
+  );
+};
+
 const PremiumBanner = ({ onUpgrade, type = 'stats' }: { onUpgrade: () => void, type?: 'stats' | 'offline' }) => {
   const { t } = useTranslation();
   return (
@@ -1016,6 +1279,27 @@ const StatsTab = ({ inventory, isPremium, onUpgrade }: { inventory: Record<strin
     const topMissing = [...teamProgress].sort((a, b) => b.missing - a.missing).slice(0, 5);
     const nearestCompletion = [...teamProgress].filter(tp => tp.missing > 0).sort((a, b) => a.missing - b.missing).slice(0, 5);
 
+    const repeatedBreakdown = {
+      extra: 0,
+      fivePlus: 0,
+      tenPlus: 0
+    };
+    
+    const allRepeatedList: {code: string, count: number}[] = [];
+    
+    Object.entries(inventory).forEach(([code, data]) => {
+      if (data.status === 'repeated' && data.count > 1) {
+        const reps = data.count - 1;
+        allRepeatedList.push({ code, count: reps });
+        if (data.count >= 3) repeatedBreakdown.extra++;
+        if (data.count >= 5) repeatedBreakdown.fivePlus++;
+        if (data.count >= 10) repeatedBreakdown.tenPlus++;
+      }
+    });
+
+    const topRepeated = allRepeatedList.sort((a, b) => b.count - a.count).slice(0, 5);
+    const specialsProgress = Math.round((specialsObtained / specialsTotal) * 100);
+
     const groupData = [
       { name: t('teams.FWC'), obtained: specialsObtained, total: specialsTotal, color: '#D4AF37' },
       { name: t('nav.album'), obtained: correctedTeamsObtained, total: teamsTotal, color: '#91022D' },
@@ -1030,7 +1314,10 @@ const StatsTab = ({ inventory, isPremium, onUpgrade }: { inventory: Record<strin
       groupData,
       regionStats,
       topMissing,
-      nearestCompletion
+      nearestCompletion,
+      repeatedBreakdown,
+      topRepeated,
+      specialsProgress
     };
   }, [inventory, t]);
 
@@ -1216,6 +1503,100 @@ const StatsTab = ({ inventory, isPremium, onUpgrade }: { inventory: Record<strin
             </div>
           </motion.div>
         </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          <motion.div variants={itemVariants} className="fifa-card p-8 bg-black/40 border-white/5">
+            <h3 className="font-display font-bold text-xl mb-6 flex items-center gap-3 text-fifa-gold">
+              <div className="p-2 bg-fifa-gold/10 rounded-xl">
+                <Star size={20} />
+              </div>
+              {t('stats.special_progress')}
+            </h3>
+            <div className="space-y-6">
+              <div className="relative h-32 w-32 mx-auto">
+                <svg className="w-full h-full" viewBox="0 0 100 100">
+                  <circle className="text-white/5 stroke-current" strokeWidth="8" fill="transparent" r="40" cx="50" cy="50" />
+                  <motion.circle 
+                    className="text-fifa-gold stroke-current" 
+                    strokeWidth="8" 
+                    strokeLinecap="round" 
+                    fill="transparent" 
+                    r="40" cx="50" cy="50" 
+                    style={{ strokeDasharray: 251.2, strokeDashoffset: 251.2 - (251.2 * stats.specialsProgress) / 100 }}
+                  />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-2xl font-display font-bold text-white">{stats.specialsProgress}%</span>
+                  <span className="text-[10px] text-gray-500 font-bold uppercase">{t('stats.progress')}</span>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-4 rounded-2xl bg-white/5 border border-white/5 text-center">
+                   <p className="text-[10px] text-gray-500 font-bold uppercase mb-1">{t('teams.FWC')}</p>
+                   <p className="text-lg font-bold">{stats.groupData[0].obtained}/{stats.groupData[0].total}</p>
+                </div>
+                <div className="p-4 rounded-2xl bg-white/5 border border-white/5 text-center">
+                   <p className="text-[10px] text-gray-500 font-bold uppercase mb-1">{t('teams.CC')}</p>
+                   <p className="text-lg font-bold">{stats.groupData[2].obtained}/{stats.groupData[2].total}</p>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+
+          <motion.div variants={itemVariants} className="fifa-card p-8 bg-black/40 border-white/5">
+            <h3 className="font-display font-bold text-xl mb-6 flex items-center gap-3 text-fifa-red">
+              <div className="p-2 bg-fifa-red/10 rounded-xl">
+                <Activity size={20} />
+              </div>
+              {t('stats.duplicates_analysis')}
+            </h3>
+            <div className="space-y-4">
+              <div className="grid grid-cols-3 gap-3">
+                {[
+                  { label: "3+", val: stats.repeatedBreakdown.extra, color: "text-orange-400" },
+                  { label: "5+", val: stats.repeatedBreakdown.fivePlus, color: "text-red-400" },
+                  { label: "10+", val: stats.repeatedBreakdown.tenPlus, color: "text-purple-400" },
+                ].map((item, i) => (
+                  <div key={i} className="p-3 rounded-xl bg-white/5 border border-white/5 text-center">
+                    <p className={`text-lg font-bold ${item.color}`}>{item.val}</p>
+                    <p className="text-[9px] text-gray-500 font-bold uppercase">{item.label}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="space-y-2 pt-4">
+                <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest px-1">{t('stats.most_repeated')}</h4>
+                {stats.topRepeated.length === 0 ? (
+                  <p className="text-xs text-gray-500 p-4 text-center italic">{t('bazar.none_for_now')}</p>
+                ) : (
+                  stats.topRepeated.map((item, i) => (
+                    <div key={i} className="flex items-center justify-between p-3 rounded-xl bg-white/2 border border-white/5">
+                      <span className="text-sm font-bold text-gray-300">{item.code}</span>
+                      <span className="text-xs font-mono text-fifa-red font-bold">x{item.count}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </motion.div>
+        </div>
+
+        <motion.div variants={itemVariants} className="fifa-card p-8 bg-fifa-gold/5 border-fifa-gold/20 flex flex-col items-center justify-center text-center space-y-4 max-w-2xl mx-auto">
+           <div className="w-16 h-16 bg-fifa-gold rounded-3xl flex items-center justify-center shadow-xl shadow-fifa-gold/20 rotate-3 transition-transform hover:scale-110">
+              <Zap size={32} className="text-black" />
+           </div>
+           <div className="space-y-1">
+              <h3 className="font-display font-bold text-xl text-white">{t('stats.completion_date_est')}</h3>
+              <p className="text-xs text-gray-500 max-w-[300px]">{t('stats.stickers_needed')}: <span className="text-fifa-gold font-bold">{stats.grandTotal - stats.totalObtained}</span></p>
+           </div>
+           <div className="p-4 rounded-2xl bg-black/40 border border-fifa-gold/30 w-full max-w-md">
+              <p className="text-[10px] text-gray-500 font-bold uppercase mb-2">{t('stats.rarity_status')}</p>
+              <p className="text-lg font-display font-bold text-fifa-gold italic">
+                {stats.progressPercent < 20 ? "Amateur Collector" : 
+                 stats.progressPercent < 50 ? "Rising Star" : 
+                 stats.progressPercent < 85 ? "Veteran Sticker" : "ALMOST GOAT"}
+              </p>
+           </div>
+        </motion.div>
       </motion.div>
     </PremiumGuard>
   );
@@ -1753,6 +2134,10 @@ export default function App() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [upgrading, setUpgrading] = useState(false);
   const [showPremiumModal, setShowPremiumModal] = useState(false);
+  const [showCreateAlbumModal, setShowCreateAlbumModal] = useState(false);
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [creatingAlbum, setCreatingAlbum] = useState(false);
+  const [transferring, setTransferring] = useState(false);
   const [showOfflineAlert, setShowOfflineAlert] = useState(false);
   const [pendingMessages, setPendingMessages] = useState<any[]>([]);
   const [adminPremiumOverride, setAdminPremiumOverride] = useState(false);
@@ -2057,17 +2442,71 @@ export default function App() {
     setView(v);
   };
 
-  const handleCreateAlbum = async () => {
-    if (!user || albums.length >= 2) return;
+  const handleCreateAlbum = async (name?: string, isInverse: boolean = false) => {
+    if (!user) return;
+    
+    const maxAlbums = isPremium ? 3 : 1;
+    if (albums.length >= maxAlbums) {
+      if (!isPremium) {
+        setShowPremiumModal(true);
+      } else {
+        alert(t('album.quota_reached', { count: maxAlbums }));
+      }
+      return;
+    }
+
     if (!isOnline) {
       setError(t('album.create_error_offline'));
       return;
     }
-    const name = albums.length === 0 
-      ? `Álbum de ${user.displayName || user.email?.split('@')[0]}` 
-      : `Álbum secundario de ${user.displayName || user.email?.split('@')[0]}`;
-    await albumService.createAlbum(user.uid, name);
-    loadAlbums();
+
+    // If modal is not open and we haven't received parameters, open it
+    if (!name) {
+      setShowCreateAlbumModal(true);
+      return;
+    }
+
+    setCreatingAlbum(true);
+    try {
+      const albumId = await albumService.createAlbum(user.uid, name, isInverse);
+      await loadAlbums();
+      setShowCreateAlbumModal(false);
+      // Automatically switch to the new album
+      const newAlbum = { id: albumId, name, userId: user.uid };
+      setActiveAlbum(newAlbum);
+      
+      confetti({
+        particleCount: 100,
+        spread: 70,
+        origin: { y: 0.6 },
+        colors: ['#D4AF37', '#91022D', '#FFFFFF']
+      });
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setCreatingAlbum(false);
+    }
+  };
+
+  const handleTransfer = async (targetAlbumId: string, stickers: { code: string, count: number }[]) => {
+    if (!activeAlbum || !user || !isPremium) return;
+    
+    setTransferring(true);
+    try {
+      await albumService.transferStickers(activeAlbum.id, targetAlbumId, stickers);
+      setShowTransferModal(false);
+      // Confetti for successful transfer
+      confetti({
+        particleCount: 50,
+        spread: 60,
+        origin: { y: 0.7 },
+        colors: ['#D4AF37', '#FFFFFF']
+      });
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setTransferring(false);
+    }
   };
 
   const handleUpdateSticker = (code: string, status: StickerStatus, count: number) => {
@@ -2451,9 +2890,17 @@ export default function App() {
                   {album.name}
                 </button>
               ))}
-              {albums.length < 2 && (
+              {albums.length > 1 && isPremium && (
                 <button 
-                  onClick={handleCreateAlbum}
+                  onClick={() => setShowTransferModal(true)}
+                  className="px-4 py-1.5 rounded-full text-xs font-bold bg-fifa-gold/20 text-fifa-gold hover:bg-fifa-gold/30 transition-all flex items-center gap-1 border border-fifa-gold/20"
+                >
+                  <Share2 size={14} /> {t('album.transfer_button')}
+                </button>
+              )}
+              {albums.length < (isPremium ? 3 : 1) && (
+                <button 
+                  onClick={() => handleCreateAlbum()}
                   className="px-4 py-1.5 rounded-full text-xs font-bold text-gray-500 hover:text-white transition-all flex items-center gap-1"
                 >
                   <Plus size={14} /> {t('nav.new_album')}
@@ -2572,6 +3019,13 @@ export default function App() {
           <>
               {!isPremium && <PremiumBanner onUpgrade={() => setShowPremiumModal(true)} type="offline" />}
               
+              {activeAlbum?.isInverse && (
+                <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl text-xs text-blue-400 font-bold flex items-center gap-2">
+                  <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse" />
+                  {t('album.inverse_mode_label')}: {t('album.inverse_mode_desc')}
+                </div>
+              )}
+
               <ExportActions 
                 inventory={inventory} 
                 isPremium={isPremium} 
@@ -2805,6 +3259,25 @@ export default function App() {
         user={user}
         onLink={handleLinkGoogle}
         onClaim={handleClaimTrial}
+      />
+
+      <CreateAlbumModal 
+        isOpen={showCreateAlbumModal}
+        onClose={() => setShowCreateAlbumModal(false)}
+        onCreate={(name, inv) => handleCreateAlbum(name, inv)}
+        loading={creatingAlbum}
+        currentCount={albums.length}
+        isPremium={isPremium}
+      />
+
+      <TransferModal
+        isOpen={showTransferModal}
+        onClose={() => setShowTransferModal(false)}
+        albums={albums}
+        activeAlbumId={activeAlbum?.id || ""}
+        inventory={inventory}
+        onTransfer={handleTransfer}
+        loading={transferring}
       />
 
       <AnimatePresence>
