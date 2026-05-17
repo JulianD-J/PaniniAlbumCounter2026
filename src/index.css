@@ -33,6 +33,20 @@ body {
     radial-gradient(circle at 0% 0%, rgba(225, 6, 0, 0.05) 0%, transparent 50%),
     radial-gradient(circle at 100% 100%, rgba(212, 175, 55, 0.05) 0%, transparent 50%);
   background-attachment: fixed;
+  /* Safe Area Support for Android/iOS */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Disable hover on touch devices to avoid "sticky" buttons */
+@media (hover: hover) {
+  .fifa-card:hover {
+    @apply border-fifa-gold/30 -translate-y-1 shadow-fifa-gold/5;
+  }
 }
 
 .glass {
@@ -71,6 +85,16 @@ body {
 .sticker-red {
   background: linear-gradient(135deg, #E10600 0%, #FF4D4D 50%, #E10600 100%);
   @apply text-white shadow-lg shadow-fifa-red/20;
+}
+
+.sticker-purple {
+  background: linear-gradient(135deg, #6B21A8 0%, #A855F7 50%, #6B21A8 100%);
+  @apply text-white shadow-lg shadow-purple-500/20;
+}
+
+.sticker-blue {
+  background: linear-gradient(135deg, #1D4ED8 0%, #3B82F6 50%, #1D4ED8 100%);
+  @apply text-white shadow-lg shadow-blue-500/20;
 }
 
 ::-webkit-scrollbar {

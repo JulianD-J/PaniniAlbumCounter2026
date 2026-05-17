@@ -26,7 +26,13 @@ service cloud.firestore {
     // User profiles
     match /users/{userId} {
       allow read: if isSignedIn();
-      allow write: if isOwner(userId);
+      allow write: if isOwner(userId) && 
+        // Prevent users from resetting trialUsed once it's true
+        (resource == null || !(resource.data.trialUsed == true && request.resource.data.trialUsed == false)) &&
+        // Prevent users from changing trialStartDate once set
+        (resource == null || !('trialStartDate' in resource.data) || resource.data.trialStartDate == request.resource.data.trialStartDate) &&
+        // Prevent trials without google UID reference if they link
+        (request.resource.data.trialUsed != true || request.resource.data.googleUid != null);
 
       match /friends/{friendId} {
         allow read, write: if isOwner(userId);

@@ -15,7 +15,9 @@ import {
   limit,
   increment
 } from 'firebase/firestore';
-import { db } from './firebase';
+import { linkWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import { BillingPlugin } from 'capacitor-billing';
+import { db, auth } from './firebase';
 
 export enum OperationType {
   CREATE = 'create',
@@ -53,12 +55,12 @@ const normalizeString = (str: string) => {
 };
 
 export const albumService = {
-  async saveUserProfile(userId: string, profile: { displayName: string | null, email: string | null, photoURL: string | null }) {
+  async saveUserProfile(userId: string, profile: any) {
     try {
-      const normalizedName = profile.displayName ? normalizeString(profile.displayName) : '';
+      const normalizedName = profile.displayName ? normalizeString(profile.displayName) : undefined;
       await setDoc(doc(db, 'users', userId), {
         ...profile,
-        normalizedName,
+        ...(normalizedName ? { normalizedName } : {}),
         updatedAt: serverTimestamp()
       }, { merge: true });
     } catch (e) {
@@ -255,64 +257,81 @@ export const albumService = {
 
   async completeSwap(messageId: string, fromId: string, toId: string, give: string[], get: string[]) {
     try {
+      const { writeBatch } = await import('firebase/firestore');
+      const batch = writeBatch(db);
+
       // 1. Mark message as completed
-      await updateDoc(doc(db, 'messages', messageId), { status: 'completed' });
+      batch.update(doc(db, 'messages', messageId), { status: 'completed' });
 
       // Update completed swaps count for both
-      await setDoc(doc(db, 'users', fromId), { 
+      batch.set(doc(db, 'users', fromId), { 
         stats: { completedSwaps: increment(1) } 
       }, { merge: true });
-      await setDoc(doc(db, 'users', toId), { 
+      batch.set(doc(db, 'users', toId), { 
         stats: { completedSwaps: increment(1) } 
       }, { merge: true });
 
-      // 2. We need to update inventories. 
-      // This is a complex operation that usually requires a Cloud Function for atomicity across different users' documents.
-      // But for this client-side demo, we'll perform multiple batch-like setDocs/updateDocs.
-      
-      // Update my inventory (toId is the receiver - the person who clicks "Complete")
+      // 2. Update inventories
       const myAlbums = await this.getAlbums(toId);
       if (myAlbums && myAlbums.length > 0) {
         const myAlbumId = myAlbums[0].id;
+        const myInv = await this.getAlbumInventory(myAlbumId);
         
         // As Receiver, I GET what they sent in 'give'
         for (const code of give) {
-          await this.updateSticker(myAlbumId, code, 'obtained', 1);
+          batch.set(doc(db, 'albums', myAlbumId, 'inventory', code), {
+            status: 'obtained',
+            count: 1,
+            updatedAt: serverTimestamp()
+          });
         }
         
-        // As Receiver, I GIVE what was in 'get' (my own repeated stickers)
-        const myInv = await this.getAlbumInventory(myAlbumId);
+        // As Receiver, I GIVE what was in 'get'
         for (const code of get) {
           const current = myInv[code];
           if (current && current.status === 'repeated' && current.count > 0) {
             const nextCount = current.count - 1;
-            const nextStatus = nextCount === 0 ? 'obtained' : (nextCount === 1 ? 'obtained' : 'repeated');
-            await this.updateSticker(myAlbumId, code, nextStatus, nextCount);
+            const nextStatus = nextCount === 1 ? 'obtained' : 'repeated';
+            batch.set(doc(db, 'albums', myAlbumId, 'inventory', code), {
+              status: nextStatus,
+              count: nextCount,
+              updatedAt: serverTimestamp()
+            });
           }
         }
       }
 
-      // Update friend's inventory (fromId - the sender)
+      // Update friend's inventory
       const friendAlbums = await this.getAlbums(fromId);
       if (friendAlbums && friendAlbums.length > 0) {
         const friendAlbumId = friendAlbums[0].id;
+        const friendInv = await this.getAlbumInventory(friendAlbumId);
 
         // As Sender, they GET what I sent in 'get'
         for (const code of get) {
-          await this.updateSticker(friendAlbumId, code, 'obtained', 1);
+          batch.set(doc(db, 'albums', friendAlbumId, 'inventory', code), {
+            status: 'obtained',
+            count: 1,
+            updatedAt: serverTimestamp()
+          });
         }
 
-        // As Sender, they GIVE what was in 'give' (their repeated stickers)
-        const friendInv = await this.getAlbumInventory(friendAlbumId);
+        // As Sender, they GIVE what was in 'give'
         for (const code of give) {
           const current = friendInv[code];
           if (current && current.status === 'repeated' && current.count > 0) {
             const nextCount = current.count - 1;
-            const nextStatus = nextCount === 0 ? 'obtained' : (nextCount === 1 ? 'obtained' : 'repeated');
-            await this.updateSticker(friendAlbumId, code, nextStatus, nextCount);
+            const nextStatus = nextCount === 1 ? 'obtained' : 'repeated';
+            batch.set(doc(db, 'albums', friendAlbumId, 'inventory', code), {
+              status: nextStatus,
+              count: nextCount,
+              updatedAt: serverTimestamp()
+            });
           }
         }
       }
+
+      await batch.commit();
     } catch (e) {
       handleFirestoreError(e, OperationType.UPDATE, `messages/${messageId}`);
     }
@@ -373,6 +392,58 @@ export const albumService = {
       });
     } catch (e) {
       handleFirestoreError(e, OperationType.WRITE, path);
+    }
+  },
+
+  async linkGoogleAccount() {
+    try {
+      if (!auth.currentUser) throw new Error("No user logged in");
+      
+      const provider = new GoogleAuthProvider();
+      // Ensure only email and profile (minimal scopes)
+      // Standard GoogleAuthProvider already handles this, but we can be explicit if needed.
+      
+      try {
+        await linkWithPopup(auth.currentUser, provider);
+      } catch (linkError: any) {
+        if (linkError.code !== 'auth/provider-already-linked') {
+          throw linkError;
+        }
+      }
+      return true;
+    } catch (e) {
+      console.error("Error linking Google account:", e);
+      throw e;
+    }
+  },
+
+  async restorePurchases(userId: string) {
+    try {
+      // Use BillingPlugin to query purchases
+      const { purchases } = await (BillingPlugin as any).queryPurchases({ type: 'inapp' });
+      
+      const premiumSKU = 'premium_upgrade_2026';
+      const hasPremium = (purchases || []).some((p: any) => p.productId === premiumSKU);
+      
+      if (hasPremium) {
+        await this.saveUserProfile(userId, { isPremium: true });
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.error("Error restoring purchases:", e);
+      return false;
+    }
+  },
+
+  async completeOnboarding(userId: string) {
+    try {
+      await updateDoc(doc(db, 'users', userId), {
+        onboardingCompleted: true,
+        updatedAt: serverTimestamp()
+      });
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, `users/${userId}`);
     }
   }
 };

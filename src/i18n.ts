@@ -37,6 +37,30 @@ i18n
             reauth_required_msg: "You must re-authenticate to change your password",
             or_continue_with: "Or continue with"
           },
+          common: {
+            next: "Next",
+            back: "Back",
+            finish: "Finish",
+            skip: "Skip"
+          },
+          onboarding: {
+            welcome: {
+              title: "Welcome to Album 2026",
+              desc: "The ultimate companion to complete your collection. Let's show you how it works!"
+            },
+            stickers: {
+              title: "Manage Your Stickers",
+              desc: "Tap a sticker number once to mark it as Obtained. Tap again if it's a Repeated one."
+            },
+            bazar: {
+              title: "The Marketplace",
+              desc: "Find friends, compare albums automatically, and find the perfect swap matches instantly."
+            },
+            stats: {
+              title: "Smart Stats",
+              desc: "Track your progress by region, team, and see exactly what you need to reach that 100%!"
+            }
+          },
           nav: {
             album: "My Album",
             community: "Community",
@@ -55,7 +79,10 @@ i18n
             progress: "Progress",
             final_status: "Final Status",
             album_complete: "ALBUM COMPLETE!",
-            remaining: "remaining"
+            remaining: "remaining",
+            top_missing: "Most Needed Teams",
+            nearest_completion: "Nearest to Completion",
+            region_progress: "Region Completion"
           },
           ranking: {
             title: "Global Ranking",
@@ -90,8 +117,8 @@ i18n
             confirm_swap: "Are you sure you want to complete this swap?",
             processing: "Processing...",
             swap_done: "Swap Done! ⚽️",
-            share_title: "Panini 2026 Swap",
-            share_message: "Hi {{name}}! Here is our match for Panini 2026:\n\n✅ I give you:\n{{give}}\n\n⚽️ You give me:\n{{get}}\n\nSee you!",
+            share_title: "Album 2026 Swap",
+            share_message: "Hi {{name}}! Here is our match for Album 2026:\n\n✅ I give you:\n{{give}}\n\n⚽️ You give me:\n{{get}}\n\nSee you!",
             none_for_now: "None for now"
           },
           album: {
@@ -110,19 +137,38 @@ i18n
             create_button: "Create My Album",
             premium_banner_offline: "Upgrade to PRO for Offline Mode!",
             premium_banner_stats: "Unlock Advanced Stats & Insights with PRO!",
-            premium_lock_title: "Premium Feature",
-            premium_lock_desc: "This feature is only available for {{price}} PRO users.",
-            premium_upgrade_button: "Go PRO for {{price}}",
+            premium_lock_title: "Unlocked PRO Features",
+            premium_lock_desc: "Get unlimited exports, advanced regional stats and offline mode for only {{price}}.",
+            premium_upgrade_button: "Upgrade to PRO ({{price}})",
             premium_offline_exclusive: "Advanced offline sync is a PRO feature.",
             premium_stats_exclusive: "Sticker distribution charts are a PRO feature.",
+            premium_export_exclusive: "Exporting your collection is a PRO feature. Upgrade to get your list in CSV, Image or PDF.",
+            premium_offline_exclusive_title: "Offline Mode: Active PRO",
+            premium_offline_exclusive_desc: "You can keep using the album without internet. Sincronization will resume when you are online.",
             premium_button: "Upgrade to PRO",
-            premium_price: "$5,000 COP",
-            premium_modal_title: "Upgrade to Album 2026 PRO",
+            premium_price: "$1.99 USD",
+            premium_modal_title: "Upgrade to Colediverti 2026 PRO",
             premium_modal_feature_offline: "Offline Mode: Track stickers without data",
-            premium_modal_feature_stats: "Advanced Stats: Full distribution analytics",
-            premium_modal_feature_backup: "Cloud Sync: Safely backup your progress",
-            premium_modal_feature_ads: "Ad-Free: Pure collector experience",
-            premium_modal_disclaimer: "One-time payment managed by Google Play Billing."
+            premium_modal_feature_stats: "Advanced Status: Charts and region progress",
+            premium_modal_feature_export: "Collector's Export: CSV, PDF and Image (PNG)",
+            premium_modal_disclaimer: "One-time payment. Permanent access.",
+            export_title: "Export List",
+            export_csv: "Excel / CSV",
+            export_image: "Image",
+            export_pdf: "PDF",
+            filter_all: "All",
+            filter_repeated: "Repeated",
+            filter_missing: "Missing",
+            premium_modal_feature_creator: "Help the creator: Supports development",
+            trial_title: "7-Day Free Trial",
+            trial_desc: "Link your Google account to enjoy 7 days of PRO features for free!",
+            trial_link_button: "Link Google Account",
+            trial_claim_button: "Claim 7-Day Trial",
+            trial_linked_msg: "Google Linked!",
+            trial_active: "Active Trial ({{days}} days left)",
+            trial_limit_reached: "Trial export limit reached (10/10). Upgrade to PRO for unlimited exports.",
+            trial_used_msg: "Trial already used.",
+            trial_export_remaining: "Exports left: {{count}}/10"
           },
           teams: {
             USA: "USA",
@@ -217,6 +263,30 @@ i18n
             reauth_required_msg: "Debes volver a iniciar sesión para cambiar la contraseña",
             or_continue_with: "O continuá con"
           },
+          common: {
+            next: "Siguiente",
+            back: "Atrás",
+            finish: "Finalizar",
+            skip: "Saltar"
+          },
+          onboarding: {
+            welcome: {
+              title: "Bienvenido a Album 2026",
+              desc: "Tu compañero definitivo para completar la colección. ¡Veamos cómo funciona!"
+            },
+            stickers: {
+              title: "Gestiona tus Láminas",
+              desc: "Toca un número una vez para marcarlo como Obtenido. Toca de nuevo si es una Repetida."
+            },
+            bazar: {
+              title: "El Bazar",
+              desc: "Busca amigos, compara álbumes automáticamente y encuentra los intercambios perfectos al instante."
+            },
+            stats: {
+              title: "Estadísticas Inteligentes",
+              desc: "Sigue tu progreso por región, equipo y mira exactamente qué te falta para llegar al 100%."
+            }
+          },
           nav: {
             album: "Mi Álbum",
             community: "Comunidad",
@@ -235,7 +305,10 @@ i18n
             progress: "Progreso",
             final_status: "Estado Final",
             album_complete: "¡ÁLBUM COMPLETO!",
-            remaining: "restantes"
+            remaining: "restantes",
+            top_missing: "Equipos Más Necesitados",
+            nearest_completion: "Más Cerca de Completar",
+            region_progress: "Progreso por Región"
           },
           ranking: {
             title: "Ranking Global",
@@ -270,8 +343,8 @@ i18n
             confirm_swap: "¿Estás seguro de completar este cambio?",
             processing: "Procesando...",
             swap_done: "¡Cambio Realizado! ⚽️",
-            share_title: "Intercambio Panini 2026",
-            share_message: "¡Hola {{name}}! Aquí tienes nuestro match para el álbum Panini 2026:\n\n✅ Yo te llevo:\n{{give}}\n\n⚽️ Tú me traes:\n{{get}}\n\n¡Nos vemos pronto!",
+            share_title: "Intercambio Album 2026",
+            share_message: "¡Hola {{name}}! Aquí tienes nuestro match para el álbum Album 2026:\n\n✅ Yo te llevo:\n{{give}}\n\n⚽️ Tú me traes:\n{{get}}\n\n¡Nos vemos pronto!",
             none_for_now: "Ninguna por ahora"
           },
           album: {
@@ -290,19 +363,38 @@ i18n
             create_button: "Crear Mi Álbum",
             premium_banner_offline: "¡Pásate a PRO para usar el Modo Offline!",
             premium_banner_stats: "¡Desbloquea Estadísticas Avanzadas con PRO!",
-            premium_lock_title: "Función Premium",
-            premium_lock_desc: "Esta función solo está disponible para usuarios PRO por {{price}}.",
-            premium_upgrade_button: "Ser PRO por {{price}}",
+            premium_lock_title: "Funciones PRO Desbloqueadas",
+            premium_lock_desc: "Obtén exportaciones ilimitadas, estadísticas avanzadas y modo offline por solo {{price}}.",
+            premium_upgrade_button: "Mejorar a PRO ({{price}})",
             premium_offline_exclusive: "La sincronización avanzada offline es una función PRO.",
             premium_stats_exclusive: "Los gráficos de distribución son una función PRO.",
+            premium_export_exclusive: "Exportar tu colección es una función PRO. Mejora para obtener tu lista en CSV, Imagen o PDF.",
+            premium_offline_exclusive_title: "Modo Offline: PRO Activo",
+            premium_offline_exclusive_desc: "Puedes seguir usando el álbum sin internet. La sincronización se retomará cuando estés en línea.",
             premium_button: "Mejorar a PRO",
-            premium_price: "$5.000 COP",
-            premium_modal_title: "Mejora a Album 2026 PRO",
+            premium_price: "$1.99 USD",
+            premium_modal_title: "Mejora a Colediverti 2026 PRO",
             premium_modal_feature_offline: "Modo Offline: Gestiona láminas sin datos",
-            premium_modal_feature_stats: "Estadísticas: Analítica completa de progreso",
-            premium_modal_feature_backup: "Sincronización: Respaldo seguro en la nube",
-            premium_modal_feature_ads: "Sin Publicidad: Experiencia pura de coleccionista",
-            premium_modal_disclaimer: "Pago único gestionado por Google Play Billing."
+            premium_modal_feature_stats: "Estado Avanzado: Gráficos y progreso regional",
+            premium_modal_feature_export: "Exportación de Coleccionista: CSV, PDF e Imagen (PNG)",
+            premium_modal_disclaimer: "Pago único. Acceso permanente.",
+            export_title: "Exportar Lista",
+            export_csv: "Excel / CSV",
+            export_image: "Imagen",
+            export_pdf: "PDF",
+            filter_all: "Todas",
+            filter_repeated: "Repetidas",
+            filter_missing: "Faltantes",
+            premium_modal_feature_creator: "Ayuda al creador: Apoya el desarrollo",
+            trial_title: "Prueba Gratuita de 7 Días",
+            trial_desc: "Vincula tu cuenta de Google para disfrutar de 7 días de funciones PRO gratis.",
+            trial_link_button: "Vincular Cuenta de Google",
+            trial_claim_button: "Reclamar 7 Días Gratis",
+            trial_linked_msg: "¡Google Vinculado!",
+            trial_active: "Prueba Activa (quedan {{days}} días)",
+            trial_limit_reached: "Límite de exportaciones de la prueba alcanzado (10/10). Mejora a PRO para exportaciones ilimitadas.",
+            trial_used_msg: "Prueba gratuita ya utilizada.",
+            trial_export_remaining: "Exportaciones restantes: {{count}}/10"
           },
           teams: {
             USA: "Estados Unidos",

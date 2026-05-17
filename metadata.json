@@ -1,6 +1,6 @@
 {
   "name": "Album 2026",
-  "description": "Tu compañero definitivo para completar el álbum Panini Mundial 2026. Gestiona tus láminas, encuentra intercambios inteligentes con amigos y sigue tu progreso en tiempo real.",
+  "description": "Tu compañero definitivo para completar el álbum Colediverti Mundial 2026. Gestiona tus láminas, encuentra intercambios inteligentes con amigos y sigue tu progreso en tiempo real.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

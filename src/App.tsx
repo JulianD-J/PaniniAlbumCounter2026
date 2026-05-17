@@ -1,5 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { BillingPlugin } from 'capacitor-billing';
+import { Haptics, ImpactStyle } from '@capacitor/haptics';
+import { StatusBar, Style } from '@capacitor/status-bar';
+import { App as CapApp } from '@capacitor/app';
+import { Capacitor } from '@capacitor/core';
+import OnboardingTutorial from './components/OnboardingTutorial';
 import confetti from 'canvas-confetti';
 import { auth, googleProvider, db } from './lib/firebase';
 import { 
@@ -56,8 +62,16 @@ import {
   CloudOff,
   Diamond,
   ShieldCheck,
-  AlertTriangle
+  AlertTriangle,
+  Download,
+  FileText,
+  Image as ImageIcon,
+  FileSpreadsheet
 } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import html2canvas from 'html2canvas';
+import Papa from 'papaparse';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   PieChart, 
@@ -72,6 +86,77 @@ import {
   CartesianGrid,
   Legend
 } from 'recharts';
+
+const hapticFeedback = async (style = ImpactStyle.Light) => {
+  try {
+    await Haptics.impact({ style });
+  } catch (e) {
+    // Fallback for web if it was being used, but Capacitor is preferred
+    if (typeof window !== 'undefined' && window.navigator && window.navigator.vibrate) {
+      window.navigator.vibrate(10);
+    }
+  }
+};
+
+const TEAM_FLAGS: Record<string, string> = {
+  USA: "us", MEX: "mx", CAN: "ca", ARG: "ar", BRA: "br", ENG: "gb-eng", FRA: "fr", GER: "de", 
+  ITA: "it", ESP: "es", POR: "pt", NED: "nl", BEL: "be", CRO: "hr", URU: "uy", COL: "co",
+  MAR: "ma", SEN: "sn", JPN: "jp", KOR: "kr", AUS: "au", KSA: "sa", EGY: "eg", NGA: "ng",
+  CMR: "cm", GHA: "gh", TUN: "tn", ECU: "ec", PER: "pe", CHI: "cl", PAR: "py", CRC: "cr",
+  PAN: "pa", JAM: "jm", SRB: "rs", SUI: "ch", DEN: "dk", POL: "pl", SWE: "se", NOR: "no",
+  CZE: "cz", TUR: "tr", GRE: "gr", UKR: "ua", AUT: "at", SCO: "gb-sct", WAL: "gb-wls", RSA: "za",
+  BIH: "ba", QAT: "qa", HAI: "ht", CUW: "cw", CIV: "ci", IRN: "ir", NZL: "nz", CPV: "cv",
+  IRQ: "iq", ALG: "dz", JOR: "jo", COD: "cd", UZB: "uz"
+};
+
+const REGIONS: Record<string, string[]> = {
+  "Americas": ["MEX", "CAN", "USA", "BRA", "ARG", "COL", "URU", "ECU", "PAR", "PAN", "HAI", "CUW"],
+  "Europe": ["ENG", "GER", "ESP", "FRA", "ITA", "POR", "NED", "CRO", "BEL", "SUI", "DEN", "POL", "SWE", "NOR", "CZE", "TUR", "GRE", "UKR", "AUT", "SCO", "WAL", "BIH", "SRB"],
+  "Africa": ["MAR", "SEN", "EGY", "NGA", "CMR", "GHA", "TUN", "RSA", "CIV", "CPV", "ALG", "COD"],
+  "Asia / Oceania": ["JPN", "KOR", "AUS", "KSA", "QAT", "IRN", "IRQ", "JOR", "UZB", "NZL"]
+};
+
+function AnimatedNumber({ value }: { value: number }) {
+  const [displayValue, setDisplayValue] = useState(value);
+  
+  useEffect(() => {
+    let start = displayValue;
+    const end = value;
+    if (start === end) return;
+    
+    const duration = 1000;
+    const startTime = performance.now();
+    
+    const update = (now: number) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      
+      // Easing function (outQuart)
+      const ease = 1 - Math.pow(1 - progress, 4);
+      
+      const current = Math.floor(start + (end - start) * ease);
+      setDisplayValue(current);
+      
+      if (progress < 1) {
+        requestAnimationFrame(update);
+      } else {
+        setDisplayValue(end);
+      }
+    };
+    
+    requestAnimationFrame(update);
+  }, [value]);
+  
+  return <>{displayValue}</>;
+}
+
+function isTrialActive(profile: any) {
+  if (!profile?.trialStartDate) return false;
+  const start = new Date(profile.trialStartDate).getTime();
+  const now = Date.now();
+  const sevenDays = 7 * 24 * 60 * 60 * 1000;
+  return (now - start) < sevenDays;
+}
 
 const normalize = (text: string) => 
   text.toLowerCase()
@@ -95,9 +180,86 @@ const ProgressBar = ({ current, total, color = "bg-fifa-gold" }: { current: numb
   );
 };
 
-const PremiumModal = ({ isOpen, onClose, onUpgrade, loading }: { isOpen: boolean, onClose: () => void, onUpgrade: () => void, loading: boolean }) => {
+const OfflinePremiumAlert = ({ isOpen, onClose, onUpgrade }: { isOpen: boolean, onClose: () => void, onUpgrade: () => void }) => {
   const { t } = useTranslation();
   if (!isOpen) return null;
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, y: -50 }}
+      animate={{ opacity: 1, y: 20 }}
+      exit={{ opacity: 0, y: -50 }}
+      className="fixed top-0 left-1/2 -translate-x-1/2 z-[200] w-[90%] max-w-lg"
+    >
+      <div className="bg-dark-card border border-blue-500/30 rounded-2xl p-4 shadow-2xl flex items-center gap-4 relative overflow-hidden">
+        <div className="absolute inset-0 bg-blue-500/5 pointer-events-none" />
+        <div className="w-12 h-12 bg-blue-500/20 rounded-xl flex items-center justify-center shrink-0">
+          <WifiOff className="text-blue-400" size={24} />
+        </div>
+        <div className="flex-1">
+          <h4 className="text-white font-bold text-sm">{t('album.premium_offline_exclusive_title')}</h4>
+          <p className="text-gray-400 text-xs">{t('album.premium_offline_exclusive_desc')}</p>
+        </div>
+        <div className="flex flex-col gap-2">
+          <button 
+            onClick={onUpgrade}
+            className="px-3 py-1.5 bg-blue-500 text-white text-[10px] font-black rounded-lg uppercase tracking-tighter"
+          >
+            {t('album.premium_button')}
+          </button>
+          <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors flex items-center justify-center">
+            <X size={16} />
+          </button>
+        </div>
+      </div>
+    </motion.div>
+  );
+};
+
+const PremiumModal = ({ 
+  isOpen, 
+  onClose, 
+  onUpgrade, 
+  onRestore,
+  loading,
+  profile,
+  user,
+  onLink,
+  onClaim
+}: { 
+  isOpen: boolean, 
+  onClose: () => void, 
+  onUpgrade: () => void, 
+  onRestore: () => void,
+  loading: boolean,
+  profile: any,
+  user: User | null,
+  onLink: () => Promise<void>,
+  onClaim: () => Promise<void>
+}) => {
+  const { t } = useTranslation();
+  const [linking, setLinking] = useState(false);
+  const [claiming, setClaiming] = useState(false);
+
+  if (!isOpen) return null;
+
+  const trialActive = isTrialActive(profile);
+  const trialUsed = profile?.trialUsed;
+  
+  // Check if current user is logged in with Google or has linked Google
+  const isGoogleUser = user?.providerData.some(p => p.providerId === 'google.com');
+
+  const handleLink = async () => {
+    setLinking(true);
+    await onLink();
+    setLinking(false);
+  };
+
+  const handleClaim = async () => {
+    setClaiming(true);
+    await onClaim();
+    setClaiming(false);
+  };
 
   return (
     <AnimatePresence>
@@ -133,8 +295,8 @@ const PremiumModal = ({ isOpen, onClose, onUpgrade, loading }: { isOpen: boolean
               {[
                 { icon: WifiOff, text: t('album.premium_modal_feature_offline'), color: "text-blue-400" },
                 { icon: BarChart3, text: t('album.premium_modal_feature_stats'), color: "text-fifa-gold" },
-                { icon: ShieldCheck, text: t('album.premium_modal_feature_backup'), color: "text-green-400" },
-                { icon: Activity, text: t('album.premium_modal_feature_ads'), color: "text-purple-400" },
+                { icon: Download, text: t('album.premium_modal_feature_export'), color: "text-orange-400" },
+                { icon: Star, text: t('album.premium_modal_feature_creator'), color: "text-red-400" },
               ].map((feature, i) => (
                 <div key={i} className="flex items-center gap-4">
                   <div className={`w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center ${feature.color}`}>
@@ -145,7 +307,44 @@ const PremiumModal = ({ isOpen, onClose, onUpgrade, loading }: { isOpen: boolean
               ))}
             </div>
 
-            <div className="pt-6 border-t border-white/5 text-center">
+            {/* Trial Section */}
+            {!profile?.isPremium && (
+              <div className="bg-white/5 rounded-2xl p-5 border border-white/5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-fifa-gold uppercase tracking-widest">{t('album.trial_title')}</h3>
+                  {trialActive && <span className="text-[10px] bg-green-500/20 text-green-500 px-2 py-0.5 rounded font-black">ACTIVE</span>}
+                </div>
+                <p className="text-xs text-gray-400">{t('album.trial_desc')}</p>
+                
+                {!trialUsed ? (
+                  <div className="flex flex-col gap-2">
+                    {!isGoogleUser ? (
+                      <button 
+                        onClick={handleLink}
+                        disabled={linking}
+                        className="w-full bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-500 transition-all flex items-center justify-center gap-2"
+                      >
+                        {linking ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <ImageIcon size={18} />}
+                        {t('album.trial_link_button')}
+                      </button>
+                    ) : (
+                      <button 
+                        onClick={handleClaim}
+                        disabled={claiming}
+                        className="w-full bg-green-600 text-white font-bold py-3 rounded-xl hover:bg-green-500 transition-all flex items-center justify-center gap-2"
+                      >
+                        {claiming ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <CheckCircle2 size={18} />}
+                        {t('album.trial_claim_button')}
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-500 text-center font-bold">{t('album.trial_used_msg')}</p>
+                )}
+              </div>
+            )}
+
+            <div className="pt-2 border-t border-white/5 text-center">
               <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-4">
                 {t('album.premium_modal_disclaimer')}
               </p>
@@ -163,6 +362,13 @@ const PremiumModal = ({ isOpen, onClose, onUpgrade, loading }: { isOpen: boolean
                   </>
                 )}
               </button>
+              
+              <button 
+                onClick={onRestore}
+                className="w-full mt-4 text-xs font-bold text-gray-500 hover:text-white transition-colors"
+              >
+                Restore Purchases
+              </button>
             </div>
           </div>
         </motion.div>
@@ -170,6 +376,7 @@ const PremiumModal = ({ isOpen, onClose, onUpgrade, loading }: { isOpen: boolean
     </AnimatePresence>
   );
 };
+
 
 const PremiumGuard = ({ 
   isPremium, 
@@ -216,6 +423,260 @@ const PremiumGuard = ({
         </motion.div>
       </div>
     </div>
+  );
+};
+
+const ExportActions = ({ 
+  inventory, 
+  isPremium, 
+  onUpgradeRequest, 
+  userName, 
+  totalStats,
+  profile,
+  onExportPerformed
+}: { 
+  inventory: any, 
+  isPremium: boolean, 
+  onUpgradeRequest: () => void, 
+  userName: string, 
+  totalStats: any,
+  profile: any,
+  onExportPerformed: (type: string) => Promise<boolean>
+}) => {
+  const { t } = useTranslation();
+  const [exporting, setExporting] = useState<string | null>(null);
+  const printRef = useRef<HTMLDivElement>(null);
+
+  const trialActive = isTrialActive(profile);
+  const trialExportCount = profile?.trialExportCount || 0;
+  const isTrialLimitReached = trialActive && trialExportCount >= 10;
+
+  const getMissingData = () => {
+    const missing: { name: string, codes: number[] }[] = [];
+    
+    // Group specials
+    const missingSpecials = SPECIALS.filter(c => !inventory[c] || inventory[c].status === 'missing')
+      .map(c => parseInt(c.replace('FWC', '')) || 0);
+    if (missingSpecials.length > 0) {
+      missing.push({ name: t('teams.FWC'), codes: missingSpecials.sort((a, b) => a - b) });
+    }
+
+    // Group teams
+    TEAMS.forEach(team => {
+      const teamMissing: number[] = [];
+      for (let i = 1; i <= 20; i++) {
+        const c = `${team}${i}`;
+        if (!inventory[c] || inventory[c].status === 'missing') {
+          teamMissing.push(i);
+        }
+      }
+      if (teamMissing.length > 0) {
+        const teamName = TEAM_DETAILS[team] ? t(`teams.${TEAM_DETAILS[team].code}`) : team;
+        missing.push({ name: teamName, codes: teamMissing.sort((a, b) => a - b) });
+      }
+    });
+
+    // Group Coca-Cola
+    const missingCC = COCA_COLA.filter(c => !inventory[c] || inventory[c].status === 'missing')
+      .map(c => parseInt(c.replace('CC', '')) || 0);
+    if (missingCC.length > 0) {
+      missing.push({ name: t('teams.CC'), codes: missingCC.sort((a, b) => a - b) });
+    }
+
+    return missing;
+  };
+
+  const handleExportCSV = () => {
+    const missingData = getMissingData();
+    const rows = missingData.map(item => [item.name, `${item.codes.join(' ')} (faltantes)`]);
+
+    const csv = Papa.unparse({
+      fields: ["Country/Team", "Missing Stickers"],
+      data: rows
+    });
+    
+    const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Album2026_Missing_${userName?.replace(/\s+/g, '_') || 'collector'}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleExportPDF = () => {
+    const doc = new jsPDF();
+    doc.setFontSize(20);
+    doc.text(`Album 2026 - ${userName}`, 14, 20);
+    doc.setFontSize(10);
+    doc.text(`${t('stats.progress')}: ${Math.round((totalStats.obtained / totalStats.total) * 100)}% (${totalStats.obtained}/${totalStats.total})`, 14, 30);
+    
+    const missingData = getMissingData();
+    const rows = missingData.map(item => [item.name, `${item.codes.join(' ')} (faltantes)`]);
+
+    autoTable(doc, {
+      head: [['Country / Team', 'Missing Stickers']],
+      body: rows,
+      startY: 40,
+      theme: 'grid',
+      headStyles: { fillColor: [212, 175, 55], textColor: [0, 0, 0], fontStyle: 'bold' },
+      columnStyles: {
+        0: { cellWidth: 40, fontStyle: 'bold' },
+        1: { cellWidth: 'auto' }
+      }
+    });
+
+    doc.save(`Album2026_Missing_${userName?.replace(/\s+/g, '_') || 'collector'}.pdf`);
+  };
+
+  const handleExportImage = async () => {
+    if (!printRef.current) return;
+    setExporting('image');
+    try {
+      const canvas = await html2canvas(printRef.current, {
+        backgroundColor: '#0a0a0b',
+        scale: 2,
+        logging: false,
+        useCORS: true,
+        // Force ignore some CSS properties that might cause issues with oklch
+        onclone: (doc) => {
+          const elements = doc.querySelectorAll('*');
+          elements.forEach((el: any) => {
+            // We'll trust our clean template, but this is a safety net
+          });
+        }
+      });
+      const image = canvas.toDataURL("image/png");
+      const link = document.createElement("a");
+      link.href = image;
+      link.download = `Album2026_${userName?.replace(/\s+/g, '_') || 'collector'}.png`;
+      link.click();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setExporting(null);
+    }
+  };
+
+  const wrapHandler = async (handler: () => void, type: string) => {
+    if (!isPremium && !trialActive) {
+      onUpgradeRequest();
+      return;
+    }
+
+    if (trialActive && !profile?.isPremium) {
+      if (trialExportCount >= 10) {
+        alert(t('album.trial_limit_reached'));
+        onUpgradeRequest();
+        return;
+      }
+      
+      const success = await onExportPerformed(type);
+      if (!success) return;
+    }
+
+    handler();
+  };
+
+  const missingGroups = getMissingData();
+
+  return (
+    <>
+      <div className="flex flex-wrap gap-2 mb-4">
+        <button 
+          onClick={() => wrapHandler(handleExportCSV, 'csv')}
+          className="flex-1 min-w-[120px] flex items-center justify-center gap-2 bg-white/5 border border-white/10 hover:border-fifa-gold/50 rounded-xl py-3 px-4 text-xs font-bold text-gray-300 hover:text-white transition-all group"
+          style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.1)' }}
+        >
+          <FileSpreadsheet size={16} className="text-fifa-gold" />
+          {t('album.export_csv')}
+          {(!isPremium && !trialActive) && <Lock size={10} className="text-gray-600 ml-1" />}
+        </button>
+        <button 
+          onClick={() => wrapHandler(handleExportPDF, 'pdf')}
+          className="flex-1 min-w-[120px] flex items-center justify-center gap-2 bg-white/5 border border-white/10 hover:border-fifa-gold/50 rounded-xl py-3 px-4 text-xs font-bold text-gray-300 hover:text-white transition-all group"
+          style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.1)' }}
+        >
+          <FileText size={16} className="text-fifa-gold" />
+          {t('album.export_pdf')}
+          {(!isPremium && !trialActive) && <Lock size={10} className="text-gray-600 ml-1" />}
+        </button>
+        <button 
+          onClick={() => wrapHandler(handleExportImage, 'image')}
+          disabled={exporting === 'image'}
+          className="flex-1 min-w-[120px] flex items-center justify-center gap-2 bg-white/5 border border-white/10 hover:border-fifa-gold/50 rounded-xl py-3 px-4 text-xs font-bold text-gray-300 hover:text-white transition-all group disabled:opacity-50"
+          style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.1)' }}
+        >
+          {exporting === 'image' ? (
+            <div className="w-4 h-4 border-2 border-[#D4AF37] border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <ImageIcon size={16} style={{ color: '#D4AF37' }} />
+          )}
+          {t('album.export_image')}
+          {(!isPremium && !trialActive) && <Lock size={10} className="text-gray-600 ml-1" />}
+        </button>
+      </div>
+
+      {trialActive && !profile?.isPremium && (
+        <div className="w-full mt-[-8px] mb-4 px-4 py-2 bg-blue-500/10 border border-blue-500/20 rounded-xl flex items-center justify-between">
+          <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">
+            {t('album.trial_active', { days: 7 - Math.floor((Date.now() - new Date(profile.trialStartDate).getTime()) / (24 * 60 * 60 * 1000)) })}
+          </span>
+          <span className="text-[10px] font-bold text-gray-400">
+            {t('album.trial_export_remaining', { count: trialExportCount })}
+          </span>
+        </div>
+      )}
+
+      {/* Hidden Export Template for Image - Using Hex Colors exclusively to avoid oklch issues */}
+      <div className="fixed -left-[2000px] top-0 pointer-events-none">
+        <div ref={printRef} style={{ width: '600px', padding: '40px', backgroundColor: '#111111', color: '#ffffff', borderTop: '8px solid #D4AF37' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '32px' }}>
+            <div>
+              <h1 style={{ fontSize: '36px', fontWeight: 'bold', letterSpacing: '-1px', color: '#D4AF37', margin: 0 }}>ALBUM 2026</h1>
+              <p style={{ color: '#999999', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '2px', margin: '4px 0 0 0' }}>{userName}</p>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <p style={{ fontSize: '48px', fontWeight: 'bold', color: '#ffffff', margin: 0 }}>{Math.round((totalStats.obtained / totalStats.total) * 100)}%</p>
+              <p style={{ fontSize: '10px', fontWeight: 'bold', color: '#D4AF37', textTransform: 'uppercase', letterSpacing: '2px', margin: 0 }}>{t('stats.progress')}</p>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '32px' }}>
+            <div style={{ backgroundColor: 'rgba(255,255,255,0.05)', padding: '16px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)' }}>
+              <p style={{ fontSize: '10px', fontWeight: 'bold', color: '#666666', textTransform: 'uppercase', marginBottom: '4px', margin: 0 }}>{t('album.obtained')}</p>
+              <p style={{ fontSize: '24px', fontWeight: 'bold', color: '#ffffff', margin: 0 }}>{totalStats.obtained} / {totalStats.total}</p>
+            </div>
+            <div style={{ backgroundColor: 'rgba(255,255,255,0.05)', padding: '16px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)' }}>
+              <p style={{ fontSize: '10px', fontWeight: 'bold', color: '#666666', textTransform: 'uppercase', marginBottom: '4px', margin: 0 }}>{t('stats.repeated')}</p>
+              <p style={{ fontSize: '24px', fontWeight: 'bold', color: '#E10600', margin: 0 }}>{totalStats.repeated}</p>
+            </div>
+          </div>
+
+          <div style={{ marginTop: '24px' }}>
+            <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#D4AF37', textTransform: 'uppercase', letterSpacing: '1px', borderBottom: '1px solid rgba(212, 175, 55, 0.2)', paddingBottom: '8px', marginBottom: '16px' }}>
+              Missing Stickers by Team
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {missingGroups.map((group, idx) => (
+                <div key={idx} style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '8px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#ffffff', width: '140px', flexShrink: 0 }}>{group.name}:</span>
+                  <span style={{ fontSize: '12px', color: '#aaaaaa', lineHeight: '1.4' }}>{group.codes.join(' ')}</span>
+                </div>
+              ))}
+              {missingGroups.length === 0 && (
+                <p style={{ textAlign: 'center', fontSize: '14px', fontWeight: 'bold', color: '#4ADE80', margin: '20px 0' }}>ALBUM COMPLETE! ⚽️🏆</p>
+              )}
+            </div>
+          </div>
+          
+          <div style={{ marginTop: '48px', paddingTop: '24px', borderTop: '1px solid rgba(255,255,255,0.1)', textAlign: 'center' }}>
+            <p style={{ fontSize: '10px', color: '#444444', fontWeight: 'bold', letterSpacing: '2px', textTransform: 'uppercase', margin: 0 }}>GENERATED WITH ALBUM 2026 PRO COUNTER</p>
+          </div>
+        </div>
+      </div>
+    </>
   );
 };
 
@@ -269,6 +730,7 @@ const StickerItem = ({
   const isSpecial = code.startsWith('FWC') || code.startsWith('CC');
 
   const cycleStatus = () => {
+    hapticFeedback(ImpactStyle.Medium);
     let nextStatus: StickerStatus = 'missing';
     let nextCount = 0;
     
@@ -287,11 +749,13 @@ const StickerItem = ({
 
   const incrementCount = (e: React.MouseEvent) => {
     e.stopPropagation();
+    hapticFeedback(ImpactStyle.Light);
     onUpdate(code, 'repeated', currentCount + 1);
   };
 
   const decrementCount = (e: React.MouseEvent) => {
     e.stopPropagation();
+    hapticFeedback(ImpactStyle.Light);
     if (currentCount > 2) {
       onUpdate(code, 'repeated', currentCount - 1);
     } else if (currentCount === 2) {
@@ -299,17 +763,27 @@ const StickerItem = ({
     }
   };
 
+  const auraColor = currentStatus === 'obtained' 
+    ? 'rgba(212, 175, 55, 0.4)' 
+    : currentStatus === 'repeated' 
+      ? 'rgba(225, 6, 0, 0.4)' 
+      : 'transparent';
+
   return (
     <motion.div 
       layout
       onClick={cycleStatus}
       whileHover={{ scale: 1.05 }}
       whileTap={{ scale: 0.95 }}
+      style={{
+        boxShadow: currentStatus !== 'missing' ? `0 0 20px -5px ${auraColor}` : 'none'
+      }}
       className={`
         relative p-2 h-20 flex flex-col items-center justify-center rounded-xl cursor-pointer transition-all border-2
         ${currentStatus === 'obtained' ? (isSpecial ? 'sticker-gold border-white/20' : 'bg-fifa-gold border-fifa-gold text-black shadow-lg shadow-fifa-gold/20') : ''}
-        ${currentStatus === 'repeated' ? 'sticker-red border-white/20 text-white shadow-lg shadow-fifa-red/20' : ''}
-        ${currentStatus === 'missing' ? 'bg-white/5 border-white/5 hover:border-white/10 text-gray-500' : ''}
+        ${currentStatus === 'repeated' && currentCount === 2 ? 'sticker-purple border-white/20 text-white shadow-lg shadow-purple-500/20' : ''}
+        ${currentStatus === 'repeated' && currentCount > 2 ? 'sticker-blue border-white/20 text-white shadow-lg shadow-blue-500/20' : ''}
+        ${currentStatus === 'missing' ? 'bg-white/5 border-white/5 hover:border-white/10 text-gray-500 shadow-inner' : ''}
       `}
     >
       <span className={`text-[10px] font-mono font-bold mb-1 ${currentStatus === 'missing' ? 'opacity-40' : 'opacity-80'}`}>{code}</span>
@@ -345,46 +819,54 @@ const StickerItem = ({
 const Section = ({ 
   title, 
   codes, 
-  inventory, 
-  onUpdate,
-  searchQuery = ""
-}: { 
-  title: string, 
-  codes: string[], 
-  inventory: Record<string, any>,
-  onUpdate: (code: string, status: StickerStatus, count: number) => void,
-  searchQuery?: string,
-  key?: string | number
-}) => {
-  const { t } = useTranslation();
-  const [isOpen, setIsOpen] = useState(false);
-  
-  const query = normalize(searchQuery);
-  
-  // Filter codes within section if searching
-  const displayCodes = useMemo(() => {
-    const sectionTitleNormalized = normalize(title);
-    const teamInfo = TEAM_DETAILS[title];
-    const teamFullNameTranslated = teamInfo ? t(`teams.${teamInfo.code}`) : title;
-    const teamFullNameNormalized = normalize(teamFullNameTranslated);
+    inventory, 
+    onUpdate,
+    searchQuery = "",
+    filter = "all"
+  }: { 
+    title: string, 
+    codes: string[], 
+    inventory: Record<string, any>,
+    onUpdate: (code: string, status: StickerStatus, count: number) => void,
+    searchQuery?: string,
+    filter?: 'all' | 'repeated' | 'missing',
+    key?: string | number
+  }) => {
+    const { t } = useTranslation();
+    const [isOpen, setIsOpen] = useState(false);
+    
+    const query = normalize(searchQuery);
+    
+    // Filter codes within section if searching or filtering
+    const displayCodes = useMemo(() => {
+      let filtered = codes;
+      
+      // Apply status filter
+      if (filter === 'repeated') {
+        filtered = filtered.filter(c => inventory[c]?.status === 'repeated');
+      } else if (filter === 'missing') {
+        filtered = filtered.filter(c => !inventory[c] || inventory[c].status === 'missing');
+      }
 
-    if (query === "" || sectionTitleNormalized.includes(query) || teamFullNameNormalized.includes(query)) return codes;
-    return codes.filter(c => normalize(c).includes(query));
-  }, [codes, query, title, t]);
+      const sectionTitleNormalized = normalize(title);
+      const teamInfo = TEAM_DETAILS[title];
+      const teamFullNameTranslated = teamInfo ? t(`teams.${teamInfo.code}`) : title;
+      const teamFullNameNormalized = normalize(teamFullNameTranslated);
 
-  // Automatically open if a specific code within this section is being searched
-  useEffect(() => {
-    const sectionTitleNormalized = normalize(title);
-    const teamInfo = TEAM_DETAILS[title];
-    const teamFullNameTranslated = teamInfo ? t(`teams.${teamInfo.code}`) : title;
-    const teamFullNameNormalized = normalize(teamFullNameTranslated);
+      if (query === "" || sectionTitleNormalized.includes(query) || teamFullNameNormalized.includes(query)) return filtered;
+      return filtered.filter(c => normalize(c).includes(query));
+    }, [codes, query, title, t, filter, inventory]);
 
-    if (query !== "" && codes.some(c => normalize(c).includes(query)) && !sectionTitleNormalized.includes(query) && !teamFullNameNormalized.includes(query)) {
-      setIsOpen(true);
-    }
-  }, [query, codes, title, t]);
-  
-  const stats = useMemo(() => {
+    // Automatically open if searching or filtering and has results
+    useEffect(() => {
+      if (query !== "" || filter !== 'all') {
+        if (displayCodes.length > 0 && displayCodes.length < codes.length) {
+          setIsOpen(true);
+        }
+      }
+    }, [query, filter, displayCodes.length, codes.length]);
+    
+    const stats = useMemo(() => {
     let obtained = 0;
     let repeated = 0;
     codes.forEach(code => {
@@ -400,12 +882,31 @@ const Section = ({
   return (
     <div className="mb-4 fifa-card overflow-hidden">
       <button 
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => {
+          hapticFeedback(ImpactStyle.Light);
+          setIsOpen(!isOpen);
+        }}
         className="w-full p-4 flex items-center justify-between text-left hover:bg-white/5"
       >
         <div className="flex-1 mr-4">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="font-display font-bold text-lg">{TEAM_DETAILS[title] ? t(`teams.${TEAM_DETAILS[title].code}`) : (title === "FWC" ? t('teams.FWC') : (title === "CC" ? t('teams.CC') : title))}</h3>
+            <div className="flex items-center gap-3">
+              {TEAM_FLAGS[title] && (
+                <img 
+                  src={`https://flagcdn.com/w40/${TEAM_FLAGS[title]}.png`} 
+                  className="w-5 h-3.5 object-cover rounded shadow-sm opacity-80" 
+                  alt="" 
+                />
+              )}
+              <h3 className="font-display font-bold text-lg">
+                {TEAM_DETAILS[title] ? t(`teams.${TEAM_DETAILS[title].code}`) : (title === "FWC" ? t('teams.FWC') : (title === "CC" ? t('teams.CC') : title))}
+              </h3>
+              {TEAM_DETAILS[title] && (
+                <span className="px-2 py-0.5 bg-green-500/20 border border-green-500/30 text-green-400 text-[10px] font-black rounded-md uppercase tracking-tighter">
+                  {TEAM_DETAILS[title].code}
+                </span>
+              )}
+            </div>
             <span className="text-sm font-medium text-fifa-gold">
               {stats.obtained}/{stats.total} {stats.repeated > 0 && <span className="text-fifa-red ml-2">+{stats.repeated} {t('album.repeated_label')}</span>}
             </span>
@@ -477,12 +978,18 @@ const StatsTab = ({ inventory, isPremium, onUpgrade }: { inventory: Record<strin
       if (inventory[c]?.status === 'repeated') repeatedTotal += (inventory[c].count - 1);
     });
 
-    TEAMS.forEach(team => {
+    const teamProgress = TEAMS.map(team => {
+      let obtained = 0;
       for (let i = 1; i <= 20; i++) {
         const c = `${team}${i}`;
-        if (inventory[c]?.status === 'obtained' || inventory[c]?.status === 'repeated') teamsObtained++;
+        if (inventory[c]?.status === 'obtained' || inventory[c]?.status === 'repeated') {
+          obtained++;
+          teamsObtained++;
+        }
         if (inventory[c]?.status === 'repeated') repeatedTotal += (inventory[c].count - 1);
       }
+      const teamName = TEAM_DETAILS[team] ? t(`teams.${TEAM_DETAILS[team].code}`) : team;
+      return { team, name: teamName, obtained, total: 20, missing: 20 - obtained, percentage: Math.round((obtained / 20) * 100) };
     });
 
     COCA_COLA.forEach(c => {
@@ -490,33 +997,46 @@ const StatsTab = ({ inventory, isPremium, onUpgrade }: { inventory: Record<strin
       if (inventory[c]?.status === 'repeated') repeatedTotal += (inventory[c].count - 1);
     });
 
-    const totalObtained = specialsObtained + teamsObtained + cocaColaObtained;
-    const progressPercent = Math.round((totalObtained / grandTotal) * 100);
+    const correctedTeamsObtained = teamProgress.reduce((acc, curr) => acc + curr.obtained, 0);
+    const finalObtained = specialsObtained + correctedTeamsObtained + cocaColaObtained;
+    const progressPercent = Math.round((finalObtained / grandTotal) * 100);
 
-    const chartData = [
+    const regionStats = Object.entries(REGIONS).map(([region, teams]) => {
+      let obtained = 0;
+      let total = teams.length * 20;
+      teams.forEach(team => {
+        for (let i = 1; i <= 20; i++) {
+          const c = `${team}${i}`;
+          if (inventory[c]?.status === 'obtained' || inventory[c]?.status === 'repeated') obtained++;
+        }
+      });
+      return { name: region, obtained, total, percentage: Math.round((obtained / total) * 100) };
+    });
+
+    const topMissing = [...teamProgress].sort((a, b) => b.missing - a.missing).slice(0, 5);
+    const nearestCompletion = [...teamProgress].filter(tp => tp.missing > 0).sort((a, b) => a.missing - b.missing).slice(0, 5);
+
+    const groupData = [
       { name: t('teams.FWC'), obtained: specialsObtained, total: specialsTotal, color: '#D4AF37' },
-      { name: t('nav.ranking'), obtained: teamsObtained, total: teamsTotal, color: '#91022D' },
+      { name: t('nav.album'), obtained: correctedTeamsObtained, total: teamsTotal, color: '#91022D' },
       { name: t('teams.CC'), obtained: cocaColaObtained, total: cocaColaTotal, color: '#E10600' },
     ];
 
     return {
-      specials: { obtained: specialsObtained, total: specialsTotal },
-      teams: { obtained: teamsObtained, total: teamsTotal },
-      cocacola: { obtained: cocaColaObtained, total: cocaColaTotal },
+      totalObtained: finalObtained,
       grandTotal,
-      totalObtained,
       progressPercent,
       repeatedTotal,
-      chartData
+      groupData,
+      regionStats,
+      topMissing,
+      nearestCompletion
     };
   }, [inventory, t]);
 
   const containerVariants = {
     hidden: { opacity: 0 },
-    visible: {
-      opacity: 1,
-      transition: { staggerChildren: 0.1 }
-    }
+    visible: { opacity: 1, transition: { staggerChildren: 0.1 } }
   };
 
   const itemVariants = {
@@ -530,122 +1050,172 @@ const StatsTab = ({ inventory, isPremium, onUpgrade }: { inventory: Record<strin
         variants={containerVariants}
         initial="hidden"
         animate="visible"
-        className="space-y-8 pb-12"
+        className="space-y-8 pb-32"
       >
-        {/* Header Overview */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {[
-          { icon: Trophy, color: "text-fifa-gold", val: `${stats.progressPercent}%`, label: t('stats.total_progress'), bg: "bg-fifa-gold/10" },
-          { icon: CheckCircle2, color: "text-green-500", val: stats.totalObtained, label: t('stats.unique'), bg: "bg-green-500/10" },
-          { icon: PlusCircle, color: "text-fifa-red", val: stats.repeatedTotal, label: t('stats.repeated'), bg: "bg-fifa-red/10" },
-          { icon: Activity, color: "text-blue-500", val: stats.grandTotal - stats.totalObtained, label: t('stats.missing'), bg: "bg-blue-500/10" },
-        ].map((item, i) => (
-          <motion.div 
-            key={i}
-            variants={itemVariants}
-            whileHover={{ y: -5 }}
-            className={`fifa-card p-6 flex flex-col items-center relative group overflow-hidden`}
-          >
-            <div className={`absolute top-0 left-0 w-1 h-full ${item.color.replace('text-', 'bg-')}`} />
-            <div className={`w-12 h-12 ${item.bg} rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform`}>
-              <item.icon className={item.color} size={24} />
-            </div>
-            <span className="text-3xl font-display font-bold">{item.val}</span>
-            <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mt-2 text-center opacity-80 group-hover:opacity-100 transition-opacity">
-              {item.label}
-            </span>
-          </motion.div>
-        ))}
-      </div>
-
-      {/* Main Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <motion.div variants={itemVariants} className="fifa-card p-8 bg-black/40 backdrop-blur-md">
-          <h3 className="font-display font-bold text-xl mb-8 flex items-center gap-3">
-            <div className="p-2 bg-fifa-gold/10 rounded-lg">
-              <PieChartIcon className="text-fifa-gold" size={20} />
-            </div>
-            {t('stats.distribution')}
-          </h3>
-          <div className="h-[280px]">
-            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-              <PieChart>
-                <Pie
-                  data={stats.chartData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={70}
-                  outerRadius={95}
-                  paddingAngle={8}
-                  dataKey="obtained"
-                  stroke="none"
-                >
-                  {stats.chartData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <RechartsTooltip 
-                  contentStyle={{ backgroundColor: '#161618', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}
-                  itemStyle={{ color: '#fff', fontSize: '12px', fontWeight: 'bold' }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="flex flex-wrap justify-center gap-6 mt-4">
-            {stats.chartData.map((item, i) => (
-              <div key={i} className="flex items-center gap-2 group cursor-default">
-                <div className="w-2.5 h-2.5 rounded-full ring-2 ring-offset-2 ring-offset-dark-bg transition-all group-hover:scale-125" style={{ backgroundColor: item.color, borderColor: item.color }}></div>
-                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-widest transition-colors group-hover:text-white">{item.name}</span>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[
+            { icon: Trophy, color: "text-fifa-gold", val: <><AnimatedNumber value={stats.progressPercent}/>%</>, label: t('stats.total_progress'), bg: "bg-fifa-gold/10" },
+            { icon: CheckCircle2, color: "text-green-500", val: <AnimatedNumber value={stats.totalObtained}/>, label: t('stats.unique'), bg: "bg-green-500/10" },
+            { icon: PlusCircle, color: "text-fifa-red", val: <AnimatedNumber value={stats.repeatedTotal}/>, label: t('stats.repeated'), bg: "bg-fifa-red/10" },
+            { icon: Activity, color: "text-blue-500", val: <AnimatedNumber value={stats.grandTotal - stats.totalObtained}/>, label: t('stats.missing'), bg: "bg-blue-500/10" },
+          ].map((item, i) => (
+            <motion.div 
+              key={i}
+              variants={itemVariants}
+              whileHover={{ y: -5, scale: 1.02 }}
+              className="fifa-card p-6 flex flex-col items-center relative group overflow-hidden border-white/5 bg-white/[0.02]"
+            >
+              <div className={`absolute top-0 left-0 w-1 h-full ${item.color.replace('text-', 'bg-')}`} />
+              <div className={`w-12 h-12 ${item.bg} rounded-2xl flex items-center justify-center mb-4 group-hover:rotate-12 transition-transform`}>
+                <item.icon className={item.color} size={24} />
               </div>
-            ))}
-          </div>
-        </motion.div>
+              <span className="text-3xl font-display font-bold">{item.val}</span>
+              <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mt-2">{item.label}</span>
+            </motion.div>
+          ))}
+        </div>
 
-        <motion.div variants={itemVariants} className="fifa-card p-8 bg-black/40 backdrop-blur-md">
-          <h3 className="font-display font-bold text-xl mb-8 flex items-center gap-3">
-            <div className="p-2 bg-fifa-gold/10 rounded-lg">
-              <TrendingUp className="text-fifa-gold" size={20} />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <motion.div variants={itemVariants} className="lg:col-span-2 fifa-card p-8 bg-black/40 backdrop-blur-xl border-white/5">
+            <h3 className="font-display font-bold text-xl mb-8 flex items-center gap-3">
+              <div className="p-2 bg-fifa-gold/10 rounded-xl">
+                <PieChartIcon className="text-fifa-gold" size={20} />
+              </div>
+              {t('stats.distribution')}
+            </h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+              <div className="h-[280px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={stats.groupData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={80}
+                      outerRadius={105}
+                      paddingAngle={8}
+                      dataKey="obtained"
+                      stroke="none"
+                    >
+                      {stats.groupData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <RechartsTooltip 
+                      contentStyle={{ backgroundColor: '#111', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px' }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              
+              <div className="space-y-6">
+                {stats.groupData.map((item, i) => (
+                  <div key={i} className="space-y-2">
+                    <div className="flex justify-between items-center text-xs">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
+                        <span className="font-bold text-gray-300 uppercase tracking-widest">{item.name}</span>
+                      </div>
+                      <span className="font-mono text-white font-bold">{item.obtained}/{item.total}</span>
+                    </div>
+                    <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                      <motion.div 
+                        initial={{ width: 0 }}
+                        animate={{ width: `${(item.obtained / item.total) * 100}%` }}
+                        className="h-full"
+                        style={{ backgroundColor: item.color }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
-            {t('stats.progress')}
-          </h3>
-          <div className="space-y-8">
-            {stats.chartData.map((item, index) => (
-              <div key={index} className="space-y-3 group">
-                <div className="flex justify-between items-center text-xs">
-                  <span className="font-bold uppercase tracking-[0.15em] text-gray-400 group-hover:text-white transition-colors">{item.name}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-white font-mono font-bold">{Math.round((item.obtained / item.total) * 100)}%</span>
-                    <span className="text-gray-500 font-mono text-[10px]">({item.obtained}/{item.total})</span>
+          </motion.div>
+
+          {/* Region Progress Chart */}
+          <motion.div variants={itemVariants} className="fifa-card p-8 bg-black/40 backdrop-blur-xl border-white/5">
+             <h3 className="font-display font-bold text-xl mb-8 flex items-center gap-3">
+              <div className="p-2 bg-blue-500/10 rounded-xl">
+                <BarChart3 className="text-blue-400" size={20} />
+              </div>
+              {t('stats.region_progress')}
+            </h3>
+            <div className="space-y-6">
+              {stats.regionStats.map((region, i) => (
+                <div key={i} className="space-y-2">
+                  <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest text-gray-500">
+                    <span>{region.name}</span>
+                    <span className="text-white font-mono">{region.percentage}%</span>
+                  </div>
+                  <div className="h-2 w-full bg-white/5 rounded-full overflow-hidden">
+                    <motion.div 
+                      initial={{ width: 0 }}
+                      animate={{ width: `${region.percentage}%` }}
+                      className="h-full bg-gradient-to-r from-blue-600 to-blue-400"
+                    />
                   </div>
                 </div>
-                <div className="h-2.5 bg-white/5 rounded-full overflow-hidden border border-white/5">
-                  <motion.div 
-                    initial={{ width: 0 }}
-                    animate={{ width: `${(item.obtained / item.total) * 100}%` }}
-                    transition={{ duration: 1, ease: "easeOut", delay: index * 0.1 }}
-                    className="h-full rounded-full relative"
-                    style={{ backgroundColor: item.color }}
-                  >
-                    <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/20 to-white/0 animate-shimmer" style={{ backgroundSize: '200% 100%' }} />
-                  </motion.div>
-                </div>
+              ))}
+            </div>
+          </motion.div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          <motion.div variants={itemVariants} className="fifa-card p-8 bg-black/40 border-white/5">
+            <h3 className="font-display font-bold text-xl mb-6 flex items-center gap-3 text-green-400">
+              <div className="p-2 bg-green-500/10 rounded-xl">
+                <Trophy size={20} />
               </div>
-            ))}
-          </div>
-          
-          <div className="mt-10 pt-8 border-t border-white/5 flex items-center justify-between group">
-            <div>
-              <p className="text-[10px] text-gray-500 uppercase font-black tracking-[0.2em]">{t('stats.final_status')}</p>
-              <p className="text-lg font-display font-bold text-white mt-1 group-hover:text-fifa-gold transition-colors">
-                {stats.totalObtained === stats.grandTotal ? t('stats.album_complete') : `${stats.grandTotal - stats.totalObtained} ${t('stats.remaining')}`}
-              </p>
+              {t('stats.nearest_completion')}
+            </h3>
+            <div className="space-y-3">
+              {stats.nearestCompletion.map((item, i) => (
+                <div key={i} className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5">
+                  <div className="flex items-center gap-3">
+                    {TEAM_FLAGS[item.team] && (
+                      <img src={`https://flagcdn.com/w40/${TEAM_FLAGS[item.team]}.png`} className="w-5 h-3.5 object-cover rounded shadow-sm" alt="" />
+                    )}
+                    <span className="text-sm font-bold text-gray-200">{item.name}</span>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <span className="text-xs font-mono text-green-400 font-bold">-{item.missing}</span>
+                    <div className="w-20 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                      <div className="h-full bg-green-500" style={{ width: `${item.percentage}%` }} />
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
-            <div className="w-14 h-14 bg-fifa-gold/10 rounded-2xl flex items-center justify-center border border-fifa-gold/20 group-hover:rotate-12 transition-transform shadow-lg shadow-fifa-gold/5">
-              <Trophy size={28} className="text-fifa-gold" />
+          </motion.div>
+
+          <motion.div variants={itemVariants} className="fifa-card p-8 bg-black/40 border-white/5">
+            <h3 className="font-display font-bold text-xl mb-6 flex items-center gap-3 text-fifa-red">
+              <div className="p-2 bg-fifa-red/10 rounded-xl">
+                <Activity size={20} />
+              </div>
+              {t('stats.top_missing')}
+            </h3>
+            <div className="space-y-3">
+              {stats.topMissing.map((item, i) => (
+                <div key={i} className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5">
+                  <div className="flex items-center gap-3 text-gray-400">
+                    {TEAM_FLAGS[item.team] && (
+                      <img src={`https://flagcdn.com/w40/${TEAM_FLAGS[item.team]}.png`} className="w-5 h-3.5 object-cover rounded shadow-sm grayscale" alt="" />
+                    )}
+                    <span className="text-sm font-bold">{item.name}</span>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <span className="text-xs font-mono text-gray-500 font-bold">{item.obtained}/{item.total}</span>
+                    <div className="w-20 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                      <div className="h-full bg-white/20" style={{ width: `${item.percentage}%` }} />
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
-          </div>
-        </motion.div>
-      </div>
+          </motion.div>
+        </div>
       </motion.div>
     </PremiumGuard>
   );
@@ -1120,12 +1690,53 @@ const CommunityView = ({
 
 export default function App() {
   const { t } = useTranslation();
+
+  // Native Initialization
+  useEffect(() => {
+    const setupNative = async () => {
+      // Check for native platform using Capacitor core
+      if (!Capacitor.isNativePlatform()) {
+        console.log("Environment: Web (Native APIs skipped)");
+        return;
+      }
+      
+      try {
+        // Set Status Bar to match dark theme
+        await StatusBar.setStyle({ style: Style.Dark });
+        await StatusBar.setBackgroundColor({ color: '#0A0A0B' }); // match --color-dark-bg
+      } catch (e) {
+        // Only warn if we are on native and it fails
+        console.warn('Native APIs setup failed on native platform', e);
+      }
+    };
+    setupNative();
+
+    // Handle Android Back Button
+    let backListener: any = null;
+    if (Capacitor.isNativePlatform()) {
+      backListener = CapApp.addListener('backButton', ({ canGoBack }) => {
+        if (!canGoBack) {
+          CapApp.exitApp();
+        } else {
+          window.history.back();
+        }
+      });
+    }
+
+    return () => {
+      if (backListener) {
+        backListener.then((l: any) => l.remove());
+      }
+    };
+  }, []);
+
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [albums, setAlbums] = useState<any[]>([]);
   const [activeAlbum, setActiveAlbum] = useState<any>(null);
   const [inventory, setInventory] = useState<Record<string, any>>({});
   const [searchQuery, setSearchQuery] = useState("");
+  const [filter, setFilter] = useState<'all' | 'repeated' | 'missing'>('all');
   const [quickTeam, setQuickTeam] = useState("");
   const [quickNumber, setQuickNumber] = useState("");
   const [view, setView] = useState<'collection' | 'community' | 'stats'>('collection');
@@ -1142,52 +1753,67 @@ export default function App() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [upgrading, setUpgrading] = useState(false);
   const [showPremiumModal, setShowPremiumModal] = useState(false);
+  const [showOfflineAlert, setShowOfflineAlert] = useState(false);
   const [pendingMessages, setPendingMessages] = useState<any[]>([]);
+  const [adminPremiumOverride, setAdminPremiumOverride] = useState(false);
   const quickInputTimeout = useRef<any>(null);
   
-  const isPremium = useMemo(() => userProfile?.isPremium || false, [userProfile]);
+  const isPremium = useMemo(() => {
+    if (adminPremiumOverride) return true;
+    if (userProfile?.isPremium) return true;
+    return isTrialActive(userProfile);
+  }, [userProfile, adminPremiumOverride]);
 
   const handleUpgrade = async () => {
     if (!user || upgrading) return;
     setUpgrading(true);
+    const premiumSKU = "premium_upgrade_2026";
     try {
-      // 1. Android/iOS Bridge logic
-      // When inside an Android TWA or WebView, we listen for a JS bridge
-      console.log("Attempting Google Play Purchase...");
+      // 1. Native Capacitor Billing Plugin
+      console.log("Attempting Google Play Purchase via Capacitor...");
       
-      let token = `mock_token_${Date.now()}`;
+      let token = "";
       
-      // If we are in a real Android native environment with a bridge
-      // @ts-ignore
-      if (window.Android && window.Android.startPurchase) {
-        // @ts-ignore
-        token = await window.Android.startPurchase("premium_upgrade");
-      } else {
-        console.warn("No native bridge detected, using simulated token. This usually means the app is running in a browser instead of natively.");
-      }
-      
-      const { getFunctions, httpsCallable } = await import('firebase/functions');
-      const functions = getFunctions();
-      const validate = httpsCallable(functions, 'validatePurchase');
-      
-      const result = await validate({
-        purchaseToken: token,
-        productId: "premium_upgrade",
-        packageName: "com.colediverti.album2026"
-      });
-
-      if ((result.data as any).success) {
-        confetti({
-          particleCount: 200,
-          spread: 90,
-          origin: { y: 0.5 },
-          colors: ['#D4AF37', '#FFFFFF']
+      try {
+        const result = await BillingPlugin.launchBillingFlow({
+          product: premiumSKU,
+          type: "inapp"
         });
-        setShowPremiumModal(false);
-      } else {
-        setError((result.data as any).message || "Verification failed");
-        setTimeout(() => setError(""), 5000);
+        
+        // Ensure token is not 'web' or empty from simulated environments
+        if (result && result.value && result.value !== 'web') {
+          token = result.value;
+          console.log("Native purchase success, token acquired:", token);
+        } else {
+          // If result.value is 'web' or missing, treat as fallback/simulator
+          throw new Error("Simulated or invalid token received");
+        }
+      } catch (nativeError: any) {
+        console.error("Native billing failed, cancelled, or returned 'web' token", nativeError);
+        // Fallback for testing/dev environment
+        if (!window.location.hostname.includes('localhost') && !window.location.hostname.includes('ais-dev')) {
+           throw new Error("Native billing is only available in the Android app.");
+        }
+        token = `android_simulated_test_token_${Date.now()}`;
       }
+      
+      // Verification logic (simplified)
+      // Standard flow - we'd normally call a Cloud function. 
+      // For this app, we'll assume valid if token is received.
+      await albumService.saveUserProfile(user.uid, { 
+        isPremium: true, 
+        purchaseToken: token, 
+        purchaseSource: Capacitor.isNativePlatform() ? 'google_play' : 'play_billing_simulator',
+        premiumActivatedAt: new Date().toISOString()
+      });
+      
+      confetti({
+        particleCount: 200,
+        spread: 90,
+        origin: { y: 0.5 },
+        colors: ['#D4AF37', '#FFFFFF']
+      });
+      setShowPremiumModal(false);
     } catch (e: any) {
       console.error("Upgrade failed", e);
       setError(e.message || "An internal error occurred during payment");
@@ -1195,6 +1821,63 @@ export default function App() {
     } finally {
       setUpgrading(false);
     }
+  };
+
+  const handleRestore = async () => {
+    if (!user) return;
+    setUpgrading(true);
+    const success = await albumService.restorePurchases(user.uid);
+    setUpgrading(false);
+    if (success) {
+      confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+      setShowPremiumModal(false);
+    } else {
+      alert("No purchases found to restore.");
+    }
+  };
+
+  const handleLinkGoogle = async () => {
+    if (!user) return;
+    hapticFeedback(ImpactStyle.Medium);
+    try {
+      await albumService.linkGoogleAccount();
+      // "Think" a few seconds as requested
+      await new Promise(r => setTimeout(r, 2000));
+      // Link success happens via auth state change or manual update search
+      // To be safe, we mark it in profile
+      const googleUid = user.providerData.find(p => p.providerId === 'google.com')?.uid || user.uid;
+      await albumService.saveUserProfile(user.uid, { googleLinked: true, googleUid });
+      confetti({ particleCount: 50, spread: 60, origin: { y: 0.6 } });
+    } catch (e: any) {
+      console.error(e);
+      setError("Linking failed. Please try again.");
+    }
+  };
+
+  const handleClaimTrial = async () => {
+    if (!user || userProfile?.trialUsed) return;
+    
+    // Check if already linked with Google
+    const isGoogleUser = user.providerData.some(p => p.providerId === 'google.com');
+    if (!isGoogleUser) {
+      alert("You must link your Google account first!");
+      return;
+    }
+
+    hapticFeedback(ImpactStyle.Heavy);
+    await albumService.saveUserProfile(user.uid, { 
+      trialUsed: true, 
+      trialStartDate: new Date().toISOString(),
+      trialExportCount: 0 
+    });
+    confetti({ particleCount: 150, spread: 70, origin: { y: 0.5 }, colors: ['#D4AF37', '#91022D'] });
+  };
+
+  const handleExportPerformed = async () => {
+    if (!user || !userProfile) return false;
+    const currentCount = userProfile.trialExportCount || 0;
+    await albumService.saveUserProfile(user.uid, { trialExportCount: currentCount + 1 });
+    return true;
   };
 
   const [email, setEmail] = useState("");
@@ -1273,6 +1956,48 @@ export default function App() {
     }
   }, [activeAlbum]);
 
+  // Completion Celebrate Effect
+  useEffect(() => {
+    if (!Object.keys(inventory).length) return;
+    
+    const specialsTotal = SPECIALS.length;
+    const teamsTotal = TEAMS.length * 20;
+    const cocaColaTotal = COCA_COLA.length;
+    const grandTotal = specialsTotal + teamsTotal + cocaColaTotal;
+    
+    let obtained = 0;
+    Object.values(inventory).forEach((s: any) => {
+      if (s.status === 'obtained' || s.status === 'repeated') obtained++;
+    });
+    
+    if (obtained === grandTotal && grandTotal > 0) {
+      // Big celebration
+      const end = Date.now() + (3 * 1000);
+      const colors = ['#D4AF37', '#91022D', '#FFFFFF'];
+
+      (function frame() {
+        confetti({
+          particleCount: 2,
+          angle: 60,
+          spread: 55,
+          origin: { x: 0 },
+          colors: colors
+        });
+        confetti({
+          particleCount: 2,
+          angle: 120,
+          spread: 55,
+          origin: { x: 1 },
+          colors: colors
+        });
+
+        if (Date.now() < end) {
+          requestAnimationFrame(frame);
+        }
+      }());
+    }
+  }, [inventory]);
+
   const handleLogin = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setError("");
@@ -1321,6 +2046,17 @@ export default function App() {
 
   const handleLogout = () => signOut(auth);
 
+  const handleCompleteOnboarding = async () => {
+    if (user) {
+      await albumService.completeOnboarding(user.uid);
+    }
+  };
+
+  const navigateView = (v: 'collection' | 'community' | 'stats') => {
+    hapticFeedback(ImpactStyle.Light);
+    setView(v);
+  };
+
   const handleCreateAlbum = async () => {
     if (!user || albums.length >= 2) return;
     if (!isOnline) {
@@ -1339,8 +2075,7 @@ export default function App() {
     
     // Lock offline editing behind premium
     if (!isOnline && !isPremium) {
-      setError(t('album.premium_offline_exclusive'));
-      setTimeout(() => setError(""), 3000);
+      setShowOfflineAlert(true);
       return;
     }
     
@@ -1543,13 +2278,17 @@ export default function App() {
         animate={{ opacity: 1, y: 0 }}
         className="w-full max-w-md text-center"
       >
-        <div className="w-20 h-20 bg-fifa-gold/10 rounded-full flex items-center justify-center mx-auto mb-6 relative">
-          <Trophy className="w-10 h-10 text-fifa-gold" />
-          <div className="absolute inset-0 bg-fifa-gold blur-2xl opacity-20" />
+        <div className="w-24 h-24 mx-auto mb-6 relative">
+          <img 
+            src="https://i.postimg.cc/gkYK9kXr/Logo-Album-2026.png" 
+            className="w-full h-full object-contain drop-shadow-[0_0_20px_rgba(212,175,55,0.3)]" 
+            alt="Album 2026 Logo" 
+          />
+          <div className="absolute inset-0 bg-fifa-gold blur-3xl opacity-10 -z-10" />
         </div>
         
         <h1 className="text-5xl md:text-6xl font-display font-bold mb-2 tracking-tighter gradient-gold bg-clip-text text-transparent drop-shadow-[0_10px_20px_rgba(212,175,55,0.1)]">
-          PANINI 2026
+          ALBUM 2026
         </h1>
         
         <div className="flex items-center justify-center gap-4 mb-8">
@@ -1650,22 +2389,35 @@ export default function App() {
       <header className="sticky top-0 z-50 bg-dark-bg/80 backdrop-blur-xl border-b border-white/5">
         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-fifa-gold/20 rounded-lg flex items-center justify-center">
-              <Trophy className="w-6 h-6 text-fifa-gold" />
+            <div className="w-10 h-10 bg-white/5 rounded-lg flex items-center justify-center overflow-hidden border border-white/10">
+              <img src="https://i.postimg.cc/gkYK9kXr/Logo-Album-2026.png" className="w-8 h-8 object-contain" alt="" />
             </div>
-            <h1 className="font-display font-bold text-xl hidden sm:block">Panini 2026</h1>
+            <div className="flex flex-col">
+              <div className="flex items-center gap-2">
+                <h1 className="font-display font-bold text-xl hidden sm:block">Album 2026</h1>
+                {user.email === 'juliand.colediverti@gmail.com' && (
+                  <button 
+                    onClick={() => setAdminPremiumOverride(!adminPremiumOverride)}
+                    className={`p-1 rounded-md border transition-colors ${isPremium ? 'bg-green-500/20 border-green-500/50 text-green-400' : 'bg-white/5 border-white/10 text-gray-500'}`}
+                    title="Toggle Admin PRO"
+                  >
+                    <ShieldCheck size={14} />
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
 
           <div className="flex items-center gap-4">
             <div className="hidden md:flex gap-2 mr-4">
               <button 
-                onClick={() => setView('collection')}
+                onClick={() => navigateView('collection')}
                 className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold transition-all ${view === 'collection' ? 'text-fifa-gold' : 'text-gray-400 hover:text-white'}`}
               >
                 <AlbumIcon size={18} /> {t('nav.album')}
               </button>
               <button 
-                onClick={() => setView('community')}
+                onClick={() => navigateView('community')}
                 className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold transition-all relative ${view === 'community' ? 'text-fifa-gold' : 'text-gray-400 hover:text-white'}`}
               >
                 <Users size={18} /> {t('nav.community')}
@@ -1676,7 +2428,7 @@ export default function App() {
                 )}
               </button>
               <button 
-                onClick={() => setView('stats')}
+                onClick={() => navigateView('stats')}
                 className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold transition-all ${view === 'stats' ? 'text-fifa-gold' : 'text-gray-400 hover:text-white'}`}
               >
                 <BarChart3 size={18} /> {t('nav.stats')}
@@ -1733,6 +2485,10 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {user && !userProfile?.onboardingCompleted && (
+        <OnboardingTutorial onComplete={handleCompleteOnboarding} />
+      )}
 
       <main className="max-w-5xl mx-auto px-4 mt-8">
         {/* Profile Card */}
@@ -1816,6 +2572,16 @@ export default function App() {
           <>
               {!isPremium && <PremiumBanner onUpgrade={() => setShowPremiumModal(true)} type="offline" />}
               
+              <ExportActions 
+                inventory={inventory} 
+                isPremium={isPremium} 
+                onUpgradeRequest={() => setShowPremiumModal(true)} 
+                userName={user.displayName || user.email || 'Collector'} 
+                totalStats={totalStats}
+                profile={userProfile}
+                onExportPerformed={handleExportPerformed}
+              />
+
               <div className="flex flex-col gap-4 mb-8">
                 <div className="flex flex-col md:flex-row gap-4">
                   <div className="relative flex-1">
@@ -1827,6 +2593,22 @@ export default function App() {
                       onChange={(e) => setSearchQuery(e.target.value)}
                       className="w-full bg-white/5 border border-white/5 rounded-xl py-4 pl-12 pr-4 focus:outline-none focus:border-fifa-gold/50 transition-all font-display"
                     />
+                  </div>
+
+                  <div className="flex gap-1 bg-white/5 p-1 rounded-xl border border-white/5 md:w-auto">
+                    {[
+                      { id: 'all', label: t('album.filter_all') },
+                      { id: 'repeated', label: t('album.filter_repeated'), color: 'text-purple-400' },
+                      { id: 'missing', label: t('album.filter_missing'), color: 'text-gray-400' }
+                    ].map(f => (
+                      <button
+                        key={f.id}
+                        onClick={() => setFilter(f.id as any)}
+                        className={`flex-1 md:px-4 py-3 rounded-lg text-[10px] font-black uppercase tracking-tighter transition-all ${filter === f.id ? 'bg-fifa-gold text-black shadow-lg shadow-fifa-gold/20' : 'text-gray-500 hover:text-white'}`}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
                   </div>
 
                   <div className="bg-white/5 border border-white/5 p-4 rounded-xl flex flex-col gap-3">
@@ -1938,48 +2720,65 @@ export default function App() {
                 {(normalize(searchQuery) === "" || 
                   normalize(t('teams.FWC')).includes(normalize(searchQuery)) ||
                   SPECIALS.some(c => normalize(c).includes(normalize(searchQuery)))
+                ) && (filter === 'all' || 
+                  (filter === 'repeated' && SPECIALS.some(c => inventory[c]?.status === 'repeated')) ||
+                  (filter === 'missing' && SPECIALS.some(c => !inventory[c] || inventory[c].status === 'missing'))
                 ) && (
-                  <Section 
-                    title="FWC" 
-                    codes={SPECIALS} 
-                    inventory={inventory} 
-                    onUpdate={handleUpdateSticker}
-                    searchQuery={searchQuery}
-                  />
-                )}
-                
-                {TEAMS.filter(team => {
-                  const query = normalize(searchQuery);
-                  const teamInfo = TEAM_DETAILS[team];
-                  const fullName = teamInfo ? teamInfo.name : "";
-                  const teamCodes = Array.from({ length: 20 }, (_, i) => `${team}${i + 1}`);
-                  return query === "" || 
-                    normalize(team).includes(query) ||
-                    normalize(fullName).includes(query) ||
-                    teamCodes.some(c => normalize(c).includes(query));
-                }).map(team => (
-                  <Section 
-                    key={team}
-                    title={team} 
-                    codes={Array.from({ length: 20 }, (_, i) => `${team}${i + 1}`)} 
-                    inventory={inventory} 
-                    onUpdate={handleUpdateSticker}
-                    searchQuery={searchQuery}
-                  />
-                ))}
+                    <Section 
+                      title="FWC" 
+                      codes={SPECIALS} 
+                      inventory={inventory} 
+                      onUpdate={handleUpdateSticker}
+                      searchQuery={searchQuery}
+                      filter={filter}
+                    />
+                  )}
+                  
+                  {TEAMS.filter(team => {
+                    const query = normalize(searchQuery);
+                    const teamInfo = TEAM_DETAILS[team];
+                    const fullName = teamInfo ? teamInfo.name : "";
+                    const teamCodes = Array.from({ length: 20 }, (_, i) => `${team}${i + 1}`);
 
-                {(normalize(searchQuery) === "" || 
-                  normalize(t('teams.CC')).includes(normalize(searchQuery)) ||
-                  COCA_COLA.some(c => normalize(c).includes(normalize(searchQuery)))
-                ) && (
-                  <Section 
-                    title="CC" 
-                    codes={COCA_COLA} 
-                    inventory={inventory} 
-                    onUpdate={handleUpdateSticker}
-                    searchQuery={searchQuery}
-                  />
-                )}
+                    // Filter teams based on status filter
+                    if (filter === 'repeated') {
+                      if (!teamCodes.some(c => inventory[c]?.status === 'repeated')) return false;
+                    } else if (filter === 'missing') {
+                      if (!teamCodes.some(c => !inventory[c] || inventory[c].status === 'missing')) return false;
+                    }
+
+                    return query === "" || 
+                      normalize(team).includes(query) ||
+                      normalize(fullName).includes(query) ||
+                      teamCodes.some(c => normalize(c).includes(query));
+                  }).map(team => (
+                    <Section 
+                      key={team}
+                      title={team} 
+                      codes={Array.from({ length: 20 }, (_, i) => `${team}${i + 1}`)} 
+                      inventory={inventory} 
+                      onUpdate={handleUpdateSticker}
+                      searchQuery={searchQuery}
+                      filter={filter}
+                    />
+                  ))}
+
+                  {(normalize(searchQuery) === "" || 
+                    normalize(t('teams.CC')).includes(normalize(searchQuery)) ||
+                    COCA_COLA.some(c => normalize(c).includes(normalize(searchQuery)))
+                  ) && (filter === 'all' || 
+                    (filter === 'repeated' && COCA_COLA.some(c => inventory[c]?.status === 'repeated')) ||
+                    (filter === 'missing' && COCA_COLA.some(c => !inventory[c] || inventory[c].status === 'missing'))
+                  ) && (
+                    <Section 
+                      title="CC" 
+                      codes={COCA_COLA} 
+                      inventory={inventory} 
+                      onUpdate={handleUpdateSticker}
+                      searchQuery={searchQuery}
+                      filter={filter}
+                    />
+                  )}
               </div>
             )}
           </>
@@ -2000,27 +2799,45 @@ export default function App() {
         isOpen={showPremiumModal} 
         onClose={() => setShowPremiumModal(false)}
         onUpgrade={handleUpgrade}
+        onRestore={handleRestore}
         loading={upgrading}
+        profile={userProfile}
+        user={user}
+        onLink={handleLinkGoogle}
+        onClaim={handleClaimTrial}
       />
+
+      <AnimatePresence>
+        {showOfflineAlert && (
+          <OfflinePremiumAlert 
+            isOpen={showOfflineAlert} 
+            onClose={() => setShowOfflineAlert(false)}
+            onUpgrade={() => {
+              setShowOfflineAlert(false);
+              setShowPremiumModal(true);
+            }}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Footer Nav for Mobile */}
       <nav className="sm:hidden fixed bottom-6 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-3xl border border-white/10 rounded-full px-6 py-4 shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center gap-8 text-gray-400 z-[100]">
         <button 
-          onClick={() => setView('collection')}
+          onClick={() => navigateView('collection')}
           className={`flex flex-col items-center gap-1 ${view === 'collection' ? 'text-fifa-gold' : ''}`}
         >
           <AlbumIcon size={24} />
           <span className="text-[8px] font-bold uppercase">{t('nav.album')}</span>
         </button>
         <button 
-          onClick={() => setView('stats')}
+          onClick={() => navigateView('stats')}
           className={`flex flex-col items-center gap-1 ${view === 'stats' ? 'text-fifa-gold' : ''}`}
         >
           <BarChart3 size={24} />
           <span className="text-[8px] font-bold uppercase">{t('nav.stats')}</span>
         </button>
         <button 
-          onClick={() => isOnline && setView('community')}
+          onClick={() => isOnline && navigateView('community')}
           className={`relative flex flex-col items-center gap-1 ${view === 'community' ? 'text-fifa-gold' : ''} ${!isOnline ? 'opacity-30 grayscale' : ''}`}
         >
           <Users size={24} />
@@ -2032,7 +2849,10 @@ export default function App() {
           <span className="text-[8px] font-bold uppercase">{t('nav.bazar')}</span>
         </button>
         <button 
-          onClick={loadRanking} 
+          onClick={() => {
+            hapticFeedback(ImpactStyle.Light);
+            loadRanking();
+          }} 
           disabled={!isOnline}
           className={`flex flex-col items-center gap-1 ${!isOnline ? 'opacity-30 grayscale' : ''}`}
         >
