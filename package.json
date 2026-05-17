@@ -1,13 +1,11 @@
 {
-  "name": "react-example",
+  "name": "album-2026",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "npm run build:client && npm run build:server",
-    "build:client": "vite build",
-    "build:server": "esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit"
@@ -25,7 +23,6 @@
     "canvas-confetti": "^1.9.4",
     "capacitor-billing": "^8.0.0",
     "dotenv": "^17.2.3",
-    "esbuild": "^0.28.0",
     "express": "^4.21.2",
     "firebase": "^12.13.0",
     "html2canvas": "^1.4.1",
@@ -48,6 +45,7 @@
     "@types/node": "^22.14.0",
     "@types/papaparse": "^5.5.2",
     "autoprefixer": "^10.4.21",
+    "esbuild": "^0.28.0",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
