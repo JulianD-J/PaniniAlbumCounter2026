@@ -1924,11 +1924,15 @@ export default function App() {
   const handleUpgrade = async () => {
     if (!user || upgrading) return;
     setUpgrading(true);
-    const premiumSKU = "premium_upgrade_2026";
+    const premiumSKU = "premium_upgrade_permanent";
     try {
       // 1. Native Capacitor Billing Plugin
-      console.log("Attempting Google Play Purchase via Capacitor...");
+      console.log("Attempting Google Play Purchase via Capacitor: " + premiumSKU);
       
+      if (!Capacitor.isNativePlatform()) {
+        throw new Error("El sistema de pagos solo está disponible en la aplicación Android.");
+      }
+
       let token = "";
       
       try {
@@ -1936,21 +1940,25 @@ export default function App() {
           product: premiumSKU,
           type: "inapp"
         });
+        
+        if (!value) {
+          throw new Error("No se recibió un token de compra válido.");
+        }
+        
         token = value;
         console.log("Native purchase success, token acquired.");
       } catch (nativeError: any) {
-        console.error("Native billing failed or cancelled", nativeError);
-        // Fallback for testing/dev environment
-        if (!window.location.hostname.includes('localhost') && !window.location.hostname.includes('ais-dev')) {
-           throw new Error("Native billing is only available in the Android app.");
-        }
-        token = `android_simulated_token_${Date.now()}`;
+        console.error("Native billing failed", nativeError);
+        throw new Error(nativeError.message || "La compra fue cancelada o falló.");
       }
       
-      // Verification logic (simplified)
-      // Standard flow - we'd normally call a Cloud function. 
-      // For this app, we'll assume valid if token is received.
-      await albumService.saveUserProfile(user.uid, { isPremium: true, purchaseToken: token });
+      // 2. Mark as premium in Firestore
+      await albumService.saveUserProfile(user.uid, { 
+        isPremium: true, 
+        purchaseToken: token,
+        purchaseDate: new Date().toISOString(),
+        sku: premiumSKU
+      });
       
       confetti({
         particleCount: 200,
@@ -1961,7 +1969,7 @@ export default function App() {
       setShowPremiumModal(false);
     } catch (e: any) {
       console.error("Upgrade failed", e);
-      setError(e.message || "An internal error occurred during payment");
+      setError(e.message || "Ocurrió un error interno durante el pago");
       setTimeout(() => setError(""), 5000);
     } finally {
       setUpgrading(false);

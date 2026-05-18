@@ -434,11 +434,15 @@ export const albumService = {
       // Use BillingPlugin to query purchases
       const { purchases } = await (BillingPlugin as any).queryPurchases({ type: 'inapp' });
       
-      const premiumSKU = 'premium_upgrade_2026';
+      const premiumSKU = 'premium_upgrade_permanent';
       const hasPremium = (purchases || []).some((p: any) => p.productId === premiumSKU);
       
       if (hasPremium) {
-        await this.saveUserProfile(userId, { isPremium: true });
+        await this.saveUserProfile(userId, { 
+          isPremium: true,
+          restoredAt: serverTimestamp(),
+          sku: premiumSKU
+        });
         return true;
       }
       return false;
