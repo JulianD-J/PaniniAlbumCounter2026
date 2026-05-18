@@ -1837,7 +1837,12 @@ const CommunityView = ({
 };
 
 export default function App() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+
+  // Update html lang attribute
+  useEffect(() => {
+    document.documentElement.lang = i18n.language;
+  }, [i18n.language]);
 
   // Native Initialization
   useEffect(() => {
@@ -2748,6 +2753,18 @@ export default function App() {
                 </button>
               )}
             </div>
+            
+            <button 
+              onClick={() => {
+                const nextLng = i18n.language.startsWith('es') ? 'en' : 'es';
+                i18n.changeLanguage(nextLng);
+                hapticFeedback(ImpactStyle.Light);
+              }}
+              className="p-2 hover:bg-white/5 rounded-full text-gray-400 hover:text-fifa-gold transition-colors font-bold text-xs"
+              title={i18n.language.startsWith('es') ? 'Switch to English' : 'Cambiar a Español'}
+            >
+              {i18n.language.startsWith('es') ? 'ES' : 'EN'}
+            </button>
             
             <button 
               onClick={handleLogout}
