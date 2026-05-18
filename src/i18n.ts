@@ -37,30 +37,6 @@ i18n
             reauth_required_msg: "You must re-authenticate to change your password",
             or_continue_with: "Or continue with"
           },
-          common: {
-            next: "Next",
-            back: "Back",
-            finish: "Finish",
-            skip: "Skip"
-          },
-          onboarding: {
-            welcome: {
-              title: "Welcome to Album 2026",
-              desc: "The ultimate companion to complete your collection. Let's show you how it works!"
-            },
-            stickers: {
-              title: "Manage Your Stickers",
-              desc: "Tap a sticker number once to mark it as Obtained. Tap again if it's a Repeated one."
-            },
-            bazar: {
-              title: "The Marketplace",
-              desc: "Find friends, compare albums automatically, and find the perfect swap matches instantly."
-            },
-            stats: {
-              title: "Smart Stats",
-              desc: "Track your progress by region, team, and see exactly what you need to reach that 100%!"
-            }
-          },
           nav: {
             album: "My Album",
             community: "Community",
@@ -135,20 +111,6 @@ i18n
             no_active_albums: "No active albums",
             create_first_tip: "Create your first album to start tracking.",
             create_button: "Create My Album",
-            create_modal_title: "Create New Album",
-            create_name_placeholder: "Album Name",
-            inverse_mode_label: "Inverse Mode",
-            inverse_mode_desc: "Select the stickers you DON'T have. (Starts with all as obtained)",
-            transfer_button: "Transfer Between Albums",
-            transfer_modal_title: "Transfer Stickers",
-            transfer_source: "From",
-            transfer_target: "To",
-            transfer_select_stickers: "Select stickers to move",
-            transfer_success: "Stickers transferred successfully!",
-            transfer_no_repeats: "No repeated stickers to transfer in this album.",
-            quota_reached: "Album quota reached ({{count}} max). Upgrade to PRO for more!",
-            premium_benefit_albums: "Create up to 3 albums",
-            premium_benefit_transfer: "Transfer stickers between your albums",
             premium_banner_offline: "Upgrade to PRO for Offline Mode!",
             premium_banner_stats: "Unlock Advanced Stats & Insights with PRO!",
             premium_lock_title: "Unlocked PRO Features",
@@ -277,30 +239,6 @@ i18n
             reauth_required_msg: "Debes volver a iniciar sesión para cambiar la contraseña",
             or_continue_with: "O continuá con"
           },
-          common: {
-            next: "Siguiente",
-            back: "Atrás",
-            finish: "Finalizar",
-            skip: "Saltar"
-          },
-          onboarding: {
-            welcome: {
-              title: "Bienvenido a Album 2026",
-              desc: "Tu compañero definitivo para completar la colección. ¡Veamos cómo funciona!"
-            },
-            stickers: {
-              title: "Gestiona tus Láminas",
-              desc: "Toca un número una vez para marcarlo como Obtenido. Toca de nuevo si es una Repetida."
-            },
-            bazar: {
-              title: "El Bazar",
-              desc: "Busca amigos, compara álbumes automáticamente y encuentra los intercambios perfectos al instante."
-            },
-            stats: {
-              title: "Estadísticas Inteligentes",
-              desc: "Sigue tu progreso por región, equipo y mira exactamente qué te falta para llegar al 100%."
-            }
-          },
           nav: {
             album: "Mi Álbum",
             community: "Comunidad",
@@ -375,20 +313,6 @@ i18n
             no_active_albums: "No tienes álbumes activos",
             create_first_tip: "Crea tu primer álbum para comenzar el seguimiento.",
             create_button: "Crear Mi Álbum",
-            create_modal_title: "Crear Nuevo Álbum",
-            create_name_placeholder: "Nombre del Álbum",
-            inverse_mode_label: "Modo Inverso",
-            inverse_mode_desc: "Selecciona las láminas que NO tienes. (Comienza con todas obtenidas)",
-            transfer_button: "Intercambio entre Álbumes",
-            transfer_modal_title: "Transferir Láminas",
-            transfer_source: "Desde",
-            transfer_target: "Hacia",
-            transfer_select_stickers: "Selecciona las láminas a mover",
-            transfer_success: "¡Láminas transferidas con éxito!",
-            transfer_no_repeats: "No hay láminas repetidas para transferir en este álbum.",
-            quota_reached: "Límite de álbumes alcanzado (máximo {{count}}). ¡Mejora a PRO para crear más!",
-            premium_benefit_albums: "Crea hasta 3 álbumes",
-            premium_benefit_transfer: "Mueve láminas entre tus propios álbumes",
             premium_banner_offline: "¡Pásate a PRO para usar el Modo Offline!",
             premium_banner_stats: "¡Desbloquea Estadísticas Avanzadas con PRO!",
             premium_lock_title: "Funciones PRO Desbloqueadas",

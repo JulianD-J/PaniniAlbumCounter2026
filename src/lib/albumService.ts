@@ -347,47 +347,15 @@ export const albumService = {
     }
   },
 
-  async createAlbum(userId: string, name: string, isInverse: boolean = false) {
+  async createAlbum(userId: string, name: string) {
     try {
       const docRef = await addDoc(collection(db, 'albums'), {
         userId,
         name,
-        isInverse,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
-      
-      const albumId = docRef.id;
-
-      if (isInverse) {
-        // Pre-populate with all stickers as 'obtained'
-        // This is a lot of writes, but necessary for the "inverse" feature
-        // We'll use batches to be efficient
-        const { writeBatch } = await import('firebase/firestore');
-        const { TEAMS, SPECIALS, COCA_COLA } = await import('../constants');
-        
-        const allCodes = [
-          ...SPECIALS,
-          ...TEAMS.flatMap(team => Array.from({ length: 20 }, (_, i) => `${team}${i + 1}`)),
-          ...COCA_COLA
-        ];
-
-        // Firestore batches are limited to 500 writes
-        for (let i = 0; i < allCodes.length; i += 500) {
-          const batch = writeBatch(db);
-          const chunk = allCodes.slice(i, i + 500);
-          chunk.forEach(code => {
-            batch.set(doc(db, 'albums', albumId, 'inventory', code), {
-              status: 'obtained',
-              count: 1,
-              updatedAt: serverTimestamp()
-            });
-          });
-          await batch.commit();
-        }
-      }
-
-      return albumId;
+      return docRef.id;
     } catch (e) {
       handleFirestoreError(e, OperationType.CREATE, 'albums');
     }
@@ -465,56 +433,6 @@ export const albumService = {
     } catch (e) {
       console.error("Error restoring purchases:", e);
       return false;
-    }
-  },
-
-  async completeOnboarding(userId: string) {
-    try {
-      await updateDoc(doc(db, 'users', userId), {
-        onboardingCompleted: true,
-        updatedAt: serverTimestamp()
-      });
-    } catch (e) {
-      handleFirestoreError(e, OperationType.UPDATE, `users/${userId}`);
-    }
-  },
-
-  async transferStickers(sourceAlbumId: string, targetAlbumId: string, stickers: { code: string, count: number }[]) {
-    try {
-      const { writeBatch } = await import('firebase/firestore');
-      const batch = writeBatch(db);
-
-      // Fetch source and target inventories to calculate new status
-      const sourceInv = await this.getAlbumInventory(sourceAlbumId);
-      const targetInv = await this.getAlbumInventory(targetAlbumId);
-
-      for (const item of stickers) {
-        // Source Update
-        const sCurrent = sourceInv[item.code] || { count: 0, status: 'missing' };
-        const sNewCount = Math.max(0, sCurrent.count - item.count);
-        const sNewStatus = sNewCount === 0 ? 'missing' : (sNewCount === 1 ? 'obtained' : 'repeated');
-        
-        batch.set(doc(db, 'albums', sourceAlbumId, 'inventory', item.code), {
-          count: sNewCount,
-          status: sNewStatus,
-          updatedAt: serverTimestamp()
-        }, { merge: true });
-
-        // Target Update
-        const tCurrent = targetInv[item.code] || { count: 0, status: 'missing' };
-        const tNewCount = tCurrent.count + item.count;
-        const tNewStatus = tNewCount === 1 ? 'obtained' : 'repeated';
-
-        batch.set(doc(db, 'albums', targetAlbumId, 'inventory', item.code), {
-          count: tNewCount,
-          status: tNewStatus,
-          updatedAt: serverTimestamp()
-        }, { merge: true });
-      }
-
-      await batch.commit();
-    } catch (e) {
-      handleFirestoreError(e, OperationType.UPDATE, `transfer/${sourceAlbumId}/${targetAlbumId}`);
     }
   }
 };
