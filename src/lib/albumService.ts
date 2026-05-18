@@ -13,7 +13,8 @@ import {
   deleteDoc,
   orderBy,
   limit,
-  increment
+  increment,
+  writeBatch
 } from 'firebase/firestore';
 import { linkWithPopup, GoogleAuthProvider } from 'firebase/auth';
 import { BillingPlugin } from 'capacitor-billing';
@@ -474,6 +475,57 @@ export const albumService = {
       }, { merge: true });
     } catch (e) {
       handleFirestoreError(e, OperationType.WRITE, 'settings/global');
+    }
+  },
+
+  async transferSticker(fromAlbumId: string, toAlbumId: string, stickerCode: string) {
+    try {
+      const fromRef = doc(db, 'albums', fromAlbumId, 'inventory', stickerCode);
+      const toRef = doc(db, 'albums', toAlbumId, 'inventory', stickerCode);
+
+      const fromSnap = await getDoc(fromRef);
+      const toSnap = await getDoc(toRef);
+
+      if (!fromSnap.exists() || fromSnap.data().count <= 1) {
+        throw new Error("No repeated sticker to transfer");
+      }
+
+      const batch = writeBatch(db);
+      
+      // Update source
+      const currentFrom = fromSnap.data();
+      if (currentFrom.count === 1) {
+        // Should not happen based on check above, but for safety:
+        batch.update(fromRef, { status: 'missing', count: 0, updatedAt: serverTimestamp() });
+      } else {
+        batch.update(fromRef, { 
+          count: increment(-1), 
+          updatedAt: serverTimestamp(),
+          // If they have 2 and give 1, they still have 1 but it's no longer repeated
+          status: currentFrom.count === 2 ? 'obtained' : 'repeated'
+        });
+      }
+
+      // Update target
+      if (!toSnap.exists()) {
+        batch.set(toRef, {
+          code: stickerCode,
+          status: 'obtained',
+          count: 1,
+          updatedAt: serverTimestamp()
+        });
+      } else {
+        const currentTo = toSnap.data();
+        batch.update(toRef, {
+          count: increment(1),
+          status: 'repeated', // If they had it (obtained or repeated), it's now repeated
+          updatedAt: serverTimestamp()
+        });
+      }
+
+      await batch.commit();
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, `transfer/${fromAlbumId}->${toAlbumId}`);
     }
   }
 };

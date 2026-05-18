@@ -60,6 +60,7 @@ import {
   CloudOff,
   Diamond,
   ShieldCheck,
+  Repeat,
   AlertTriangle,
   Download,
   FileText,
@@ -307,6 +308,7 @@ const PremiumModal = ({
                 { icon: WifiOff, text: t('album.premium_modal_feature_offline'), color: "text-blue-400" },
                 { icon: BarChart3, text: t('album.premium_modal_feature_stats'), color: "text-fifa-gold" },
                 { icon: Download, text: t('album.premium_modal_feature_export'), color: "text-orange-400" },
+                { icon: Repeat, text: t('album.premium_modal_feature_transfer'), color: "text-purple-400" },
                 { icon: Star, text: t('album.premium_modal_feature_creator'), color: "text-red-400" },
               ].map((feature, i) => (
                 <motion.div 
@@ -390,9 +392,19 @@ const PremiumModal = ({
                 ) : (
                   <>
                     <Diamond size={24} className="group-hover:rotate-12 transition-transform" />
-                    <span className="text-lg uppercase tracking-tight">{t('album.premium_modal_upgrade_button')}</span>
+                    <span className="text-lg uppercase tracking-tight">
+                      {t('album.premium_upgrade_button', { price: t('album.premium_price') })}
+                    </span>
                   </>
                 )}
+              </button>
+
+              <button 
+                onClick={onRestore}
+                disabled={loading}
+                className="w-full mt-4 text-[10px] font-bold text-gray-500 hover:text-fifa-gold transition-colors uppercase tracking-[0.2em]"
+              >
+                {t('album.premium_restore_button')}
               </button>
             </div>
           </div>
@@ -438,13 +450,89 @@ const PremiumGuard = ({
           </p>
           <button 
             onClick={onUpgrade}
-            className="w-full bg-fifa-gold text-black font-bold py-3 rounded-xl hover:scale-105 transition-all shadow-lg flex items-center justify-center gap-2"
+            className="w-full relative group bg-fifa-gold text-black font-black py-4 rounded-xl hover:scale-[1.05] active:scale-[0.98] transition-all shadow-[0_10px_25px_rgba(212,175,55,0.3)] flex items-center justify-center gap-2 overflow-hidden"
           >
-            <ShieldCheck size={20} />
-            {t('album.premium_upgrade_button', { price: t('album.premium_price') })}
+            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
+            <ShieldCheck size={20} className="group-hover:scale-110 transition-transform" />
+            <span className="uppercase tracking-tight">
+              {t('album.premium_upgrade_button', { price: t('album.premium_price') })}
+            </span>
           </button>
         </motion.div>
       </div>
+    </div>
+  );
+};
+
+const TransferModal = ({ 
+  isOpen, 
+  onClose, 
+  albums, 
+  activeAlbumId, 
+  code, 
+  onTransfer,
+  loading
+}: { 
+  isOpen: boolean, 
+  onClose: () => void, 
+  albums: any[], 
+  activeAlbumId: string, 
+  code: string | null, 
+  onTransfer: (targetAlbumId: string) => void,
+  loading: boolean
+}) => {
+  const { t } = useTranslation();
+  if (!isOpen || !code) return null;
+
+  const otherAlbums = albums.filter(a => a.id !== activeAlbumId);
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+      <motion.div 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="absolute inset-0 bg-black/80 backdrop-blur-md" 
+      />
+      <motion.div 
+        initial={{ scale: 0.9, y: 40, opacity: 0 }}
+        animate={{ scale: 1, y: 0, opacity: 1 }}
+        exit={{ scale: 0.9, y: 40, opacity: 0 }}
+        className="relative w-full max-w-sm bg-dark-card border border-purple-500/30 rounded-[2.5rem] p-8 shadow-2xl overflow-hidden"
+      >
+        <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-purple-500/10 rounded-xl flex items-center justify-center border border-purple-500/30">
+              <Repeat className="text-purple-400" size={20} />
+            </div>
+            <div>
+              <h2 className="text-xl font-display font-bold text-white tracking-tight">{t('album.transfer_title')}</h2>
+              <p className="text-[10px] text-purple-400 font-mono tracking-widest uppercase opacity-60">Sticker {code}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-full"><X size={20}/></button>
+        </div>
+
+        <div className="space-y-4">
+          <p className="text-xs text-gray-400 px-2">{t('album.transfer_select')}</p>
+          {otherAlbums.length === 0 ? (
+            <p className="text-sm text-gray-500 text-center py-8">{t('album.no_other_albums') || 'No other albums found'}</p>
+          ) : (
+            otherAlbums.map(album => (
+              <button
+                key={album.id}
+                onClick={() => onTransfer(album.id)}
+                disabled={loading}
+                className="w-full flex items-center justify-between p-4 bg-white/5 hover:bg-purple-500/10 border border-white/5 hover:border-purple-500/30 rounded-2xl transition-all group active:scale-95 disabled:opacity-50"
+              >
+                <span className="font-bold text-white group-hover:text-purple-400 transition-colors">{album.name}</span>
+                <ArrowRight size={18} className="text-gray-600 group-hover:translate-x-1 transition-all" />
+              </button>
+            ))
+          )}
+        </div>
+      </motion.div>
     </div>
   );
 };
@@ -740,14 +828,21 @@ const StickerItem = ({
   code, 
   status, 
   count, 
-  onUpdate 
+  onUpdate,
+  isPremium,
+  onTransfer,
+  isInverseMode = false
 }: { 
   code: string, 
   status?: StickerStatus, 
   count?: number,
   onUpdate: (code: string, status: StickerStatus, count: number) => void,
+  isPremium?: boolean,
+  onTransfer?: (code: string) => void,
+  isInverseMode?: boolean,
   key?: string | number
 }) => {
+  const { t } = useTranslation();
   const currentStatus = status || 'missing';
   const currentCount = count || 0;
   const isSpecial = code.startsWith('FWC') || code.startsWith('CC');
@@ -757,15 +852,27 @@ const StickerItem = ({
     let nextStatus: StickerStatus = 'missing';
     let nextCount = 0;
     
-    if (currentStatus === 'missing') {
-      nextStatus = 'obtained';
-      nextCount = 1;
-    } else if (currentStatus === 'obtained') {
-      nextStatus = 'repeated';
-      nextCount = 2;
+    if (isInverseMode) {
+      // In Inverse Mode, if missing, we mark as obtained (completing the ones we DIDN'T have)
+      // If obtained, we mark as missing
+      if (currentStatus === 'missing') {
+        nextStatus = 'obtained';
+        nextCount = 1;
+      } else {
+        nextStatus = 'missing';
+        nextCount = 0;
+      }
     } else {
-      nextStatus = 'missing';
-      nextCount = 0;
+      if (currentStatus === 'missing') {
+        nextStatus = 'obtained';
+        nextCount = 1;
+      } else if (currentStatus === 'obtained') {
+        nextStatus = 'repeated';
+        nextCount = 2;
+      } else {
+        nextStatus = 'missing';
+        nextCount = 0;
+      }
     }
     onUpdate(code, nextStatus, nextCount);
   };
@@ -817,6 +924,15 @@ const StickerItem = ({
           <span className="text-lg font-display font-bold leading-none">{currentCount}</span>
           <div className="flex gap-2 mt-1">
             <button onClick={decrementCount} className="p-0.5 hover:bg-black/10 rounded"><MinusCircle size={12}/></button>
+            {isPremium && onTransfer && (
+              <button 
+                onClick={(e) => { e.stopPropagation(); onTransfer(code); }} 
+                className="p-0.5 hover:bg-black/10 rounded text-purple-400"
+                title={t('album.transfer_title')}
+              >
+                <Repeat size={12}/>
+              </button>
+            )}
             <button onClick={incrementCount} className="p-0.5 hover:bg-black/10 rounded"><PlusCircle size={12}/></button>
           </div>
         </div>
@@ -842,17 +958,23 @@ const StickerItem = ({
 const Section = ({ 
   title, 
   codes, 
-    inventory, 
-    onUpdate,
-    searchQuery = "",
-    filter = "all"
-  }: { 
+  inventory, 
+  onUpdate,
+  searchQuery = "",
+  filter = "all",
+  isPremium,
+  onTransfer,
+  isInverseMode
+}: { 
     title: string, 
     codes: string[], 
     inventory: Record<string, any>,
     onUpdate: (code: string, status: StickerStatus, count: number) => void,
     searchQuery?: string,
     filter?: 'all' | 'repeated' | 'missing',
+    isPremium?: boolean,
+    onTransfer?: (code: string) => void,
+    isInverseMode?: boolean,
     key?: string | number
   }) => {
     const { t } = useTranslation();
@@ -972,6 +1094,9 @@ const Section = ({
                     status={inventory[code]?.status}
                     count={inventory[code]?.count}
                     onUpdate={onUpdate}
+                    isPremium={isPremium}
+                    onTransfer={onTransfer}
+                    isInverseMode={isInverseMode}
                   />
                 </motion.div>
               ))}
@@ -1769,6 +1894,10 @@ export default function App() {
   const [adminPremiumOverride, setAdminPremiumOverride] = useState(false);
   const [globalSettings, setGlobalSettings] = useState({ googleLoginEnabled: true, passwordChangeEnabled: true });
   const [showAdminDashboard, setShowAdminDashboard] = useState(false);
+  const [isInverseMode, setIsInverseMode] = useState(false);
+  const [transferStickerCode, setTransferStickerCode] = useState<string | null>(null);
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [transferLoading, setTransferLoading] = useState(false);
   const quickInputTimeout = useRef<any>(null);
   
   const isAdmin = useMemo(() => user?.email === 'juliand.colediverti@gmail.com', [user]);
@@ -1837,13 +1966,20 @@ export default function App() {
   const handleRestore = async () => {
     if (!user) return;
     setUpgrading(true);
-    const success = await albumService.restorePurchases(user.uid);
-    setUpgrading(false);
-    if (success) {
-      confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
-      setShowPremiumModal(false);
-    } else {
-      alert("No purchases found to restore.");
+    try {
+      const success = await albumService.restorePurchases(user.uid);
+      if (success) {
+        confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+        setShowPremiumModal(false);
+      } else {
+        setError(t('album.premium_restore_not_found') || "No previous purchases found for this account.");
+        setTimeout(() => setError(""), 4000);
+      }
+    } catch (e: any) {
+      setError(e.message || "Failed to restore purchases");
+      setTimeout(() => setError(""), 4000);
+    } finally {
+      setUpgrading(false);
     }
   };
 
@@ -2071,14 +2207,19 @@ export default function App() {
   };
 
   const handleCreateAlbum = async () => {
-    if (!user || albums.length >= 2) return;
+    if (!user) return;
+    const albumLimit = isPremium ? 3 : 1;
+    if (albums.length >= albumLimit) {
+      setError(t('album.album_limit_reached'));
+      return;
+    }
     if (!isOnline) {
       setError(t('album.create_error_offline'));
       return;
     }
     const name = albums.length === 0 
-      ? `Álbum de ${user.displayName || user.email?.split('@')[0]}` 
-      : `Álbum secundario de ${user.displayName || user.email?.split('@')[0]}`;
+      ? `Colección Principal` 
+      : `Colección Secundaria ${albums.length}`;
     await albumService.createAlbum(user.uid, name);
     loadAlbums();
   };
@@ -2093,6 +2234,31 @@ export default function App() {
     }
     
     albumService.updateSticker(activeAlbum.id, code, status, count);
+  };
+
+  const handleTransferSticker = async (targetAlbumId: string) => {
+    if (!transferStickerCode || !activeAlbum || !targetAlbumId) return;
+    setTransferLoading(true);
+    try {
+      await albumService.transferSticker(activeAlbum.id, targetAlbumId, transferStickerCode);
+      const current = inventory[transferStickerCode];
+      if (current) {
+        setInventory(prev => ({
+          ...prev,
+          [transferStickerCode]: { 
+            ...current, 
+            count: current.count - 1,
+            status: current.count === 2 ? 'obtained' : 'repeated'
+          }
+        }));
+      }
+      setTransferStickerCode(null);
+      setShowTransferModal(false);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setTransferLoading(false);
+    }
   };
 
   const handleQuickAdd = (explicitNumber?: string, explicitTeam?: string) => {
@@ -2573,7 +2739,7 @@ export default function App() {
                   {album.name}
                 </button>
               ))}
-              {albums.length < 2 && (
+              {albums.length < (isPremium ? 3 : 1) && (
                 <button 
                   onClick={handleCreateAlbum}
                   className="px-4 py-1.5 rounded-full text-xs font-bold text-gray-500 hover:text-white transition-all flex items-center gap-1"
@@ -2735,6 +2901,16 @@ export default function App() {
                     ))}
                   </div>
 
+                  {isPremium && (
+                    <button 
+                      onClick={() => setIsInverseMode(!isInverseMode)}
+                      className={`flex-1 md:w-auto py-3 px-4 rounded-xl border font-bold text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all ${isInverseMode ? 'bg-purple-600 border-purple-400 text-white shadow-lg shadow-purple-500/20' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}
+                    >
+                      <Repeat size={14} className={isInverseMode ? 'animate-spin' : ''} />
+                      {isInverseMode ? t('album.inverse_mode_on') : t('album.inverse_mode_off')}
+                    </button>
+                  )}
+
                   <div className="bg-white/5 border border-white/5 p-4 rounded-xl flex flex-col gap-3">
                     <div className="flex items-center gap-3">
                       <div className="relative flex-1">
@@ -2855,6 +3031,12 @@ export default function App() {
                       onUpdate={handleUpdateSticker}
                       searchQuery={searchQuery}
                       filter={filter}
+                      isPremium={isPremium}
+                      onTransfer={(code) => {
+                        setTransferStickerCode(code);
+                        setShowTransferModal(true);
+                      }}
+                      isInverseMode={isInverseMode}
                     />
                   )}
                   
@@ -2884,6 +3066,12 @@ export default function App() {
                       onUpdate={handleUpdateSticker}
                       searchQuery={searchQuery}
                       filter={filter}
+                      isPremium={isPremium}
+                      onTransfer={(code) => {
+                        setTransferStickerCode(code);
+                        setShowTransferModal(true);
+                      }}
+                      isInverseMode={isInverseMode}
                     />
                   ))}
 
@@ -2901,6 +3089,12 @@ export default function App() {
                       onUpdate={handleUpdateSticker}
                       searchQuery={searchQuery}
                       filter={filter}
+                      isPremium={isPremium}
+                      onTransfer={(code) => {
+                        setTransferStickerCode(code);
+                        setShowTransferModal(true);
+                      }}
+                      isInverseMode={isInverseMode}
                     />
                   )}
               </div>
@@ -2918,6 +3112,21 @@ export default function App() {
           />
         )}
       </main>
+
+      {/* Transfer Modal */}
+      <AnimatePresence>
+        {showTransferModal && (
+          <TransferModal 
+            isOpen={showTransferModal}
+            onClose={() => setShowTransferModal(false)}
+            albums={albums}
+            activeAlbumId={activeAlbum?.id || ''}
+            code={transferStickerCode}
+            onTransfer={handleTransferSticker}
+            loading={transferLoading}
+          />
+        )}
+      </AnimatePresence>
 
       <PremiumModal 
         isOpen={showPremiumModal} 
