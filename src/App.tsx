@@ -71,6 +71,8 @@ import autoTable from 'jspdf-autotable';
 import html2canvas from 'html2canvas';
 import Papa from 'papaparse';
 import { motion, AnimatePresence } from 'motion/react';
+import { Capacitor } from '@capacitor/core';
+import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { 
   PieChart, 
   Pie, 
@@ -168,12 +170,14 @@ const normalize = (text: string) =>
 const ProgressBar = ({ current, total, color = "bg-fifa-gold" }: { current: number, total: number, color?: string }) => {
   const percentage = Math.min(100, Math.round((current / total) * 100)) || 0;
   return (
-    <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+    <div className="w-full h-2.5 bg-white/10 rounded-full overflow-hidden relative shadow-inner">
       <motion.div 
         initial={{ width: 0 }}
         animate={{ width: `${percentage}%` }}
-        className={`h-full ${color}`}
-      />
+        className={`h-full relative transition-all duration-1000 ${color === 'bg-fifa-gold' && percentage === 100 ? 'bg-green-500' : color}`}
+      >
+        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full animate-shimmer" style={{ animationDuration: '2s' }} />
+      </motion.div>
     </div>
   );
 };
@@ -273,73 +277,102 @@ const PremiumModal = ({
           initial={{ scale: 0.9, y: 20, opacity: 0 }}
           animate={{ scale: 1, y: 0, opacity: 1 }}
           exit={{ scale: 0.9, y: 20, opacity: 0 }}
-          className="relative w-full max-w-md bg-dark-card border border-fifa-gold/30 rounded-3xl overflow-hidden shadow-2xl shadow-fifa-gold/20"
+          className="relative w-full max-w-md bg-dark-card border border-fifa-gold/30 rounded-3xl overflow-hidden shadow-2xl shadow-fifa-gold/20 flex flex-col max-h-[95vh]"
         >
           {/* Header Image/Gradient */}
-          <div className="h-32 bg-gradient-to-br from-fifa-gold to-fifa-gold-light p-6 flex flex-col justify-end">
-            <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-black/20 hover:bg-black/40 rounded-full transition-colors">
+          <div className="h-28 shrink-0 bg-gradient-to-br from-fifa-gold to-fifa-gold-light p-6 flex flex-col justify-end">
+            <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-black/20 hover:bg-black/40 rounded-full transition-colors z-10">
               <X size={20} className="text-white" />
             </button>
             <div className="flex items-center gap-3">
               <div className="p-2 bg-black/20 rounded-xl backdrop-blur-md">
                 <Diamond className="text-white" size={24} />
               </div>
-              <h2 className="text-2xl font-display font-bold text-black">{t('album.premium_modal_title')}</h2>
+              <h2 className="text-xl font-display font-bold text-black leading-tight">
+                {t('album.premium_modal_title')}
+              </h2>
             </div>
           </div>
 
-          <div className="p-8 space-y-6">
-            <div className="space-y-4">
+          <div className="p-6 space-y-6 overflow-y-auto custom-scrollbar flex-1">
+            <motion.div 
+              initial="hidden"
+              animate="visible"
+              variants={{
+                visible: { transition: { staggerChildren: 0.1 } }
+              }}
+              className="space-y-4"
+            >
               {[
                 { icon: WifiOff, text: t('album.premium_modal_feature_offline'), color: "text-blue-400" },
                 { icon: BarChart3, text: t('album.premium_modal_feature_stats'), color: "text-fifa-gold" },
                 { icon: Download, text: t('album.premium_modal_feature_export'), color: "text-orange-400" },
                 { icon: Star, text: t('album.premium_modal_feature_creator'), color: "text-red-400" },
               ].map((feature, i) => (
-                <div key={i} className="flex items-center gap-4">
-                  <div className={`w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center ${feature.color}`}>
+                <motion.div 
+                  key={i}
+                  variants={{
+                    hidden: { x: -20, opacity: 0 },
+                    visible: { x: 0, opacity: 1 }
+                  }}
+                  className="flex items-center gap-4 bg-white/5 p-4 rounded-2xl border border-white/5 hover:border-white/10 transition-all hover:translate-x-1"
+                >
+                  <div className={`w-10 h-10 rounded-xl bg-black/20 flex items-center justify-center ${feature.color}`}>
                     <feature.icon size={20} />
                   </div>
                   <span className="text-sm font-bold text-gray-300">{feature.text}</span>
-                </div>
+                </motion.div>
               ))}
-            </div>
+            </motion.div>
 
             {/* Trial Section */}
             {!profile?.isPremium && (
-              <div className="bg-white/5 rounded-2xl p-5 border border-white/5 space-y-4">
+              <motion.div 
+                initial={{ y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: 0.4 }}
+                className="bg-gradient-to-br from-white/5 to-transparent rounded-[2.5rem] p-6 border border-fifa-gold/20 space-y-4 relative overflow-hidden group shadow-2xl shadow-black/40"
+              >
+                <div className="absolute top-0 right-0 w-32 h-32 bg-fifa-gold/10 blur-[60px] rounded-full -mr-16 -mt-16 group-hover:bg-fifa-gold/20 transition-all duration-700" />
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-bold text-fifa-gold uppercase tracking-widest">{t('album.trial_title')}</h3>
-                  {trialActive && <span className="text-[10px] bg-green-500/20 text-green-500 px-2 py-0.5 rounded font-black">ACTIVE</span>}
+                  <h3 className="text-sm font-display font-black text-fifa-gold uppercase tracking-[0.2em]">{t('album.trial_title')}</h3>
+                  {trialActive && (
+                    <div className="flex items-center gap-1.5 bg-green-500/20 text-green-500 px-3 py-1 rounded-full border border-green-500/30">
+                      <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                      <span className="text-[10px] font-black tracking-widest">ACTIVE</span>
+                    </div>
+                  )}
                 </div>
-                <p className="text-xs text-gray-400">{t('album.trial_desc')}</p>
+                <p className="text-xs text-gray-400 leading-relaxed font-medium">{t('album.trial_desc')}</p>
                 
                 {!trialUsed ? (
-                  <div className="flex flex-col gap-2">
+                  <div className="flex flex-col gap-3">
                     {!isGoogleUser ? (
                       <button 
                         onClick={handleLink}
                         disabled={linking}
-                        className="w-full bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-500 transition-all flex items-center justify-center gap-2"
+                        className="w-full bg-white text-black font-black py-4 rounded-2xl hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 shadow-xl shadow-black/20"
                       >
-                        {linking ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <ImageIcon size={18} />}
+                        {linking ? <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" /> : <img src="https://www.google.com/favicon.ico" className="w-4 h-4" alt="" />}
                         {t('album.trial_link_button')}
                       </button>
                     ) : (
                       <button 
                         onClick={handleClaim}
                         disabled={claiming}
-                        className="w-full bg-green-600 text-white font-bold py-3 rounded-xl hover:bg-green-500 transition-all flex items-center justify-center gap-2"
+                        className="w-full bg-fifa-gold text-black font-black py-4 rounded-2xl hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 shadow-xl shadow-fifa-gold/30"
                       >
-                        {claiming ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <CheckCircle2 size={18} />}
+                        {claiming ? <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" /> : <ShieldCheck size={18} />}
                         {t('album.trial_claim_button')}
                       </button>
                     )}
                   </div>
                 ) : (
-                  <p className="text-xs text-gray-500 text-center font-bold">{t('album.trial_used_msg')}</p>
+                  <div className="py-4 bg-black/20 rounded-2xl border border-white/5 text-center">
+                    <p className="text-xs text-gray-500 font-bold uppercase tracking-widest">{t('album.trial_used_msg')}</p>
+                  </div>
                 )}
-              </div>
+              </motion.div>
             )}
 
             <div className="pt-2 border-t border-white/5 text-center">
@@ -349,23 +382,17 @@ const PremiumModal = ({
               <button 
                 onClick={onUpgrade}
                 disabled={loading}
-                className="w-full bg-fifa-gold text-black font-black py-4 rounded-2xl hover:scale-[1.02] active:scale-[0.98] transition-all shadow-xl shadow-fifa-gold/20 flex items-center justify-center gap-3 disabled:opacity-50"
+                className="w-full group relative bg-fifa-gold text-black font-black py-5 rounded-[2rem] hover:scale-[1.02] active:scale-[0.98] transition-all shadow-[0_15px_35px_rgba(212,175,55,0.2)] flex items-center justify-center gap-3 disabled:opacity-50 overflow-hidden"
               >
+                <div className="absolute inset-0 bg-gradient-to-tr from-white/0 via-white/20 to-white/0 -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
                 {loading ? (
                   <div className="w-6 h-6 border-2 border-black/30 border-t-black rounded-full animate-spin" />
                 ) : (
                   <>
-                    <ShieldCheck size={20} />
-                    {t('album.premium_upgrade_button', { price: t('album.premium_price') })}
+                    <Diamond size={24} className="group-hover:rotate-12 transition-transform" />
+                    <span className="text-lg uppercase tracking-tight">{t('album.premium_modal_upgrade_button')}</span>
                   </>
                 )}
-              </button>
-              
-              <button 
-                onClick={onRestore}
-                className="w-full mt-4 text-xs font-bold text-gray-500 hover:text-white transition-colors"
-              >
-                Restore Purchases
               </button>
             </div>
           </div>
@@ -374,8 +401,6 @@ const PremiumModal = ({
     </AnimatePresence>
   );
 };
-
-
 const PremiumGuard = ({ 
   isPremium, 
   children, 
@@ -777,16 +802,16 @@ const StickerItem = ({
         boxShadow: currentStatus !== 'missing' ? `0 0 20px -5px ${auraColor}` : 'none'
       }}
       className={`
-        relative p-2 h-20 flex flex-col items-center justify-center rounded-xl cursor-pointer transition-all border-2
-        ${currentStatus === 'obtained' ? (isSpecial ? 'sticker-gold border-white/20' : 'bg-fifa-gold border-fifa-gold text-black shadow-lg shadow-fifa-gold/20') : ''}
-        ${currentStatus === 'repeated' && currentCount === 2 ? 'sticker-purple border-white/20 text-white shadow-lg shadow-purple-500/20' : ''}
-        ${currentStatus === 'repeated' && currentCount > 2 ? 'sticker-blue border-white/20 text-white shadow-lg shadow-blue-500/20' : ''}
+        relative p-2 h-20 flex flex-col items-center justify-center rounded-2xl cursor-pointer transition-all border-2
+        ${currentStatus === 'obtained' ? (isSpecial ? 'sticker-gold border-white/30 scale-105' : 'bg-fifa-gold border-fifa-gold text-black shadow-lg shadow-fifa-gold/20') : ''}
+        ${currentStatus === 'repeated' && currentCount === 2 ? 'sticker-purple border-white/30 text-white shadow-lg shadow-purple-500/20' : ''}
+        ${currentStatus === 'repeated' && currentCount > 2 ? 'sticker-blue border-white/30 text-white shadow-lg shadow-blue-500/20' : ''}
         ${currentStatus === 'missing' ? 'bg-white/5 border-white/5 hover:border-white/10 text-gray-500 shadow-inner' : ''}
       `}
     >
-      <span className={`text-[10px] font-mono font-bold mb-1 ${currentStatus === 'missing' ? 'opacity-40' : 'opacity-80'}`}>{code}</span>
+      <span className={`text-[10px] font-mono leading-none font-black tracking-tighter mb-1.5 ${currentStatus === 'missing' ? 'opacity-30' : 'opacity-90'}`}>{code}</span>
       
-      {currentStatus === 'obtained' && <CheckCircle2 className={`w-5 h-5 ${isSpecial ? 'text-black' : 'text-black/60'}`} />}
+      {currentStatus === 'obtained' && <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }}><CheckCircle2 className={`w-5 h-5 ${isSpecial ? 'text-black' : 'text-black/70'}`} /></motion.div>}
       {currentStatus === 'repeated' && (
         <div className="flex flex-col items-center">
           <span className="text-lg font-display font-bold leading-none">{currentCount}</span>
@@ -1742,8 +1767,20 @@ export default function App() {
   const [showOfflineAlert, setShowOfflineAlert] = useState(false);
   const [pendingMessages, setPendingMessages] = useState<any[]>([]);
   const [adminPremiumOverride, setAdminPremiumOverride] = useState(false);
+  const [globalSettings, setGlobalSettings] = useState({ googleLoginEnabled: true, passwordChangeEnabled: true });
+  const [showAdminDashboard, setShowAdminDashboard] = useState(false);
   const quickInputTimeout = useRef<any>(null);
   
+  const isAdmin = useMemo(() => user?.email === 'juliand.colediverti@gmail.com', [user]);
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      const settings = await albumService.getGlobalSettings();
+      setGlobalSettings(settings as any);
+    };
+    fetchSettings();
+  }, []);
+
   const isPremium = useMemo(() => {
     if (adminPremiumOverride) return true;
     if (userProfile?.isPremium) return true;
@@ -2010,9 +2047,17 @@ export default function App() {
   };
 
   const handleGoogleLogin = async () => {
+    if (!globalSettings.googleLoginEnabled) {
+      setError(t('auth.google_login_disabled'));
+      return;
+    }
     setError("");
     try {
-      await signInWithPopup(auth, googleProvider);
+      if (Capacitor.isNativePlatform()) {
+        await FirebaseAuthentication.signInWithGoogle();
+      } else {
+        await signInWithPopup(auth, googleProvider);
+      }
     } catch (e: any) {
       setError(e.message);
     }
@@ -2155,6 +2200,10 @@ export default function App() {
   }, [user]);
 
   const handleUpdatePassword = async () => {
+    if (!globalSettings.passwordChangeEnabled && !isAdmin) {
+      setPasswordError(t('auth.password_change_disabled'));
+      return;
+    }
     if (!user || !newPassword) return;
     if (!isOnline) {
       setPasswordError(t('album.create_error_offline'));
@@ -2328,11 +2377,15 @@ export default function App() {
           <button 
             type="button"
             onClick={handleGoogleLogin}
-            className="w-full flex items-center justify-center gap-3 py-3 bg-white/5 border border-white/10 text-white font-bold rounded-xl hover:bg-white/10 transition-all transform active:scale-95"
+            disabled={!globalSettings.googleLoginEnabled}
+            className="w-full flex items-center justify-center gap-3 py-3 bg-white/5 border border-white/10 text-white font-bold rounded-xl hover:bg-white/10 transition-all transform active:scale-95 disabled:opacity-50 disabled:grayscale"
           >
             <img src="https://www.google.com/favicon.ico" className="w-5 h-5" alt="Google" />
             Google
           </button>
+          {!globalSettings.googleLoginEnabled && (
+            <p className="text-[10px] text-fifa-red text-center mt-2 font-bold uppercase tracking-widest">{t('auth.google_login_disabled')}</p>
+          )}
 
           <p className="text-center mt-8 text-sm text-gray-500">
             {authMode === 'login' ? t('auth.no_account') : t('auth.have_account')} 
@@ -2352,7 +2405,99 @@ export default function App() {
   );
 
   return (
-    <div className="min-h-screen pb-20">
+    <div className="min-h-screen pb-20 selection:bg-fifa-gold selection:text-black">
+      <AnimatePresence>
+        {isAdmin && showAdminDashboard && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/95 backdrop-blur-2xl" 
+              onClick={() => setShowAdminDashboard(false)} 
+            />
+            <motion.div 
+              initial={{ scale: 0.9, y: 40, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.9, y: 40, opacity: 0 }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
+              className="relative w-full max-w-lg bg-[#0E0E10] border border-fifa-gold/20 rounded-[2.5rem] p-8 shadow-[0_0_100px_rgba(212,175,55,0.1)] overflow-hidden"
+            >
+              {/* Background Accent */}
+              <div className="absolute top-0 right-0 w-32 h-32 bg-fifa-gold/10 blur-[60px] rounded-full -mr-16 -mt-16" />
+              
+              <div className="flex items-center justify-between mb-10">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-fifa-gold/10 rounded-xl flex items-center justify-center border border-fifa-gold/30">
+                    <Settings className="text-fifa-gold" size={20} />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-display font-bold text-white tracking-tight">Console Admin</h2>
+                    <p className="text-[10px] text-fifa-gold font-mono tracking-[0.2em] uppercase opacity-60">Control Panel v2.0</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowAdminDashboard(false)} 
+                  className="p-3 hover:bg-white/5 rounded-2xl transition-all border border-transparent hover:border-white/10 active:scale-95"
+                >
+                  <X size={20} className="text-gray-400" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div className="group p-6 bg-white/5 rounded-[2rem] border border-white/5 hover:border-fifa-gold/20 transition-all">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-1">
+                      <h3 className="font-bold text-white group-hover:text-fifa-gold transition-colors">Google Login</h3>
+                      <p className="text-xs text-gray-500 leading-relaxed max-w-[200px]">Allow users to authenticate via Google Infrastructure.</p>
+                    </div>
+                    <button 
+                      onClick={() => {
+                        const next = !globalSettings.googleLoginEnabled;
+                        setGlobalSettings(s => ({ ...s, googleLoginEnabled: next }));
+                        albumService.updateGlobalSettings({ googleLoginEnabled: next });
+                      }}
+                      className={`w-16 h-9 rounded-full relative transition-all duration-300 shadow-inner ${globalSettings.googleLoginEnabled ? 'bg-fifa-gold' : 'bg-gray-800'}`}
+                    >
+                      <motion.div 
+                        animate={{ x: globalSettings.googleLoginEnabled ? 28 : 4 }}
+                        className="absolute top-1.5 w-6 h-6 bg-white rounded-full shadow-lg" 
+                      />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="group p-6 bg-white/5 rounded-[2rem] border border-white/5 hover:border-fifa-gold/20 transition-all">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-1">
+                      <h3 className="font-bold text-white group-hover:text-fifa-gold transition-colors">Password Auth</h3>
+                      <p className="text-xs text-gray-500 leading-relaxed max-w-[200px]">Enable self-service password update workflows.</p>
+                    </div>
+                    <button 
+                      onClick={() => {
+                        const next = !globalSettings.passwordChangeEnabled;
+                        setGlobalSettings(s => ({ ...s, passwordChangeEnabled: next }));
+                        albumService.updateGlobalSettings({ passwordChangeEnabled: next });
+                      }}
+                      className={`w-16 h-9 rounded-full relative transition-all duration-300 shadow-inner ${globalSettings.passwordChangeEnabled ? 'bg-fifa-gold' : 'bg-gray-800'}`}
+                    >
+                      <motion.div 
+                        animate={{ x: globalSettings.passwordChangeEnabled ? 28 : 4 }}
+                        className="absolute top-1.5 w-6 h-6 bg-white rounded-full shadow-lg" 
+                      />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-8 pt-6 border-t border-white/5 flex items-center justify-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                <span className="text-[10px] text-gray-600 font-bold uppercase tracking-[0.15em]">Live System Synced</span>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
       {/* Header */}
       <header className="sticky top-0 z-50 bg-dark-bg/80 backdrop-blur-xl border-b border-white/5">
         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
@@ -2377,6 +2522,15 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-4">
+            {isAdmin && (
+              <button 
+                onClick={() => setShowAdminDashboard(true)}
+                className="p-2.5 bg-fifa-gold/10 hover:bg-fifa-gold/20 text-fifa-gold border border-fifa-gold/30 rounded-xl transition-all"
+                title="Admin Dashboard"
+              >
+                <Settings size={20} />
+              </button>
+            )}
             <div className="hidden md:flex gap-2 mr-4">
               <button 
                 onClick={() => navigateView('collection')}
@@ -2465,8 +2619,14 @@ export default function App() {
             <div className="flex-1">
               <div className="flex items-center gap-3 mb-6">
                 <div 
-                  onClick={() => isGoogleUser && isOnline && setShowPasswordModal(true)}
-                  className={`w-12 h-12 rounded-full border-2 border-fifa-gold overflow-hidden bg-white/10 flex items-center justify-center relative ${isGoogleUser && isOnline ? 'cursor-pointer hover:scale-105 transition-transform' : 'cursor-default'}`}
+                  onClick={() => {
+                    if (!globalSettings.passwordChangeEnabled && !isAdmin) {
+                      alert(t('auth.password_change_disabled_alert'));
+                      return;
+                    }
+                    if (isGoogleUser && isOnline) setShowPasswordModal(true);
+                  }}
+                  className={`w-12 h-12 rounded-full border-2 border-fifa-gold shrink-0 overflow-hidden bg-white/10 flex items-center justify-center relative ${isGoogleUser && isOnline ? 'cursor-pointer hover:scale-105 transition-transform' : 'cursor-default'}`}
                 >
                   {user.photoURL ? (
                     <img src={user.photoURL} className="w-full h-full object-cover" alt={user.displayName || ''} />
@@ -2785,7 +2945,8 @@ export default function App() {
       </AnimatePresence>
 
       {/* Footer Nav for Mobile */}
-      <nav className="sm:hidden fixed bottom-6 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-3xl border border-white/10 rounded-full px-6 py-4 shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center gap-8 text-gray-400 z-[100]">
+      {!showPremiumModal && !showRanking && !showAdminDashboard && (
+        <nav className="sm:hidden fixed bottom-6 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-3xl border border-white/10 rounded-full px-6 py-4 shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center gap-8 text-gray-400 z-[100]">
         <button 
           onClick={() => navigateView('collection')}
           className={`flex flex-col items-center gap-1 ${view === 'collection' ? 'text-fifa-gold' : ''}`}
@@ -2824,6 +2985,7 @@ export default function App() {
           <span className="text-[8px] font-bold uppercase">{t('nav.ranking')}</span>
         </button>
       </nav>
+    )}
 
       {/* Ranking Modal */}
       <AnimatePresence>

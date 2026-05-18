@@ -35,7 +35,10 @@ i18n
             reauth_msg: "You will be asked to re-authenticate for security",
             password_success: "Password updated successfully!",
             reauth_required_msg: "You must re-authenticate to change your password",
-            or_continue_with: "Or continue with"
+            or_continue_with: "Or continue with",
+            google_login_disabled: "Google login is currently disabled by administrator.",
+            password_change_disabled: "Password changes are currently disabled by administrator.",
+            password_change_disabled_alert: "Password changes are currently disabled. Contact administrator for more info."
           },
           nav: {
             album: "My Album",
@@ -237,7 +240,10 @@ i18n
             reauth_msg: "Se te pedirá re-autenticar por seguridad",
             password_success: "¡Contraseña actualizada con éxito!",
             reauth_required_msg: "Debes volver a iniciar sesión para cambiar la contraseña",
-            or_continue_with: "O continuá con"
+            or_continue_with: "O continuá con",
+            google_login_disabled: "El inicio de sesión con Google está deshabilitado temporalmente.",
+            password_change_disabled: "Los cambios de contraseña están deshabilitados temporalmente.",
+            password_change_disabled_alert: "Los cambios de contraseña están deshabilitados. Contacta al administrador para más información."
           },
           nav: {
             album: "Mi Álbum",

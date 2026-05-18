@@ -1,12 +1,12 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Default deny
+    // Default deny catch-all
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // Helper functions
+    // --- Helpers ---
     function isSignedIn() {
       return request.auth != null;
     }
@@ -19,44 +19,85 @@ service cloud.firestore {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
-    function isVerified() {
-      return request.auth.token.email_verified == true;
+    function incoming() {
+      return request.resource.data;
     }
 
-    // User profiles
+    function existing() {
+      return resource.data;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.email == 'juliand.colediverti@gmail.com';
+    }
+
+    // --- Global Settings ---
+    match /settings/global {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // --- User Profiles ---
     match /users/{userId} {
       allow read: if isSignedIn();
-      allow write: if isOwner(userId) && 
-        // Prevent users from resetting trialUsed once it's true
-        (resource == null || !(resource.data.trialUsed == true && request.resource.data.trialUsed == false)) &&
-        // Prevent users from changing trialStartDate once set
-        (resource == null || !('trialStartDate' in resource.data) || resource.data.trialStartDate == request.resource.data.trialStartDate) &&
-        // Prevent trials without google UID reference if they link
-        (request.resource.data.trialUsed != true || request.resource.data.googleUid != null);
+      
+      // Validation helper for user profile
+      function isValidUser(data) {
+        return (data.get('displayName', '') is string && data.get('displayName', '').size() <= 128) &&
+               (data.get('trialUsed', false) is bool) &&
+               (data.get('updatedAt', request.time) == request.time);
+      }
+
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      
+      allow update: if isValidUser(incoming()) && (
+        isOwner(userId) && (
+          // Business logic transitions for owners
+          (resource.data.get('trialUsed', false) == false || incoming().get('trialUsed', false) == true) &&
+          (!('trialStartDate' in resource.data) || resource.data.trialStartDate == incoming().trialStartDate)
+        ) || (
+          // Allow friends to increment swap counts
+          isSignedIn() &&
+          exists(/databases/$(database)/documents/users/$(userId)/friends/$(request.auth.uid)) &&
+          incoming().diff(resource.data).affectedKeys().hasOnly(['stats', 'updatedAt']) &&
+          incoming().get('stats', {}).diff(resource.data.get('stats', {})).affectedKeys().hasOnly(['completedSwaps'])
+        )
+      );
 
       match /friends/{friendId} {
         allow read, write: if isOwner(userId);
       }
     }
 
+    // --- Messages & Swaps ---
     match /messages/{messageId} {
       allow read: if isSignedIn() && (resource.data.from == request.auth.uid || resource.data.to == request.auth.uid);
-      allow create: if isSignedIn() && (request.resource.data.from == request.auth.uid) && exists(/databases/$(database)/documents/users/$(request.auth.uid)/friends/$(request.resource.data.to));
-      allow update: if isSignedIn() && (resource.data.to == request.auth.uid) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
+      
+      allow create: if isSignedIn() && 
+        isValidId(messageId) &&
+        incoming().from == request.auth.uid &&
+        incoming().status == 'pending' &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)/friends/$(incoming().to));
+        
+      allow update: if isSignedIn() && 
+        (resource.data.to == request.auth.uid) && 
+        incoming().diff(resource.data).affectedKeys().hasOnly(['status']) &&
+        incoming().status in ['pending', 'completed'];
     }
 
-    // Albums
+    // --- Albums ---
     match /albums/{albumId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow update: if isSignedIn() && resource.data.userId == request.auth.uid && request.resource.data.userId == request.auth.uid;
-      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
 
       // Stickers subcollection
       match /inventory/{stickerCode} {
         allow read: if isSignedIn();
         allow write: if isSignedIn() && (
+          // Owner can write
           get(/databases/$(database)/documents/albums/$(albumId)).data.userId == request.auth.uid ||
+          // Friend of owner can write (for completing swaps)
           exists(/databases/$(database)/documents/users/$(get(/databases/$(database)/documents/albums/$(albumId)).data.userId)/friends/$(request.auth.uid))
         );
       }

@@ -38,7 +38,16 @@ export interface FirestoreErrorInfo {
 function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null): never {
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
-    authInfo: {}, // Simplified for now, in a real app we'd grab more details
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      providerInfo: auth.currentUser?.providerData?.map(p => ({
+        providerId: p.providerId,
+        email: p.email
+      })) || []
+    },
     operationType,
     path
   };
@@ -263,13 +272,15 @@ export const albumService = {
       // 1. Mark message as completed
       batch.update(doc(db, 'messages', messageId), { status: 'completed' });
 
-      // Update completed swaps count for both
-      batch.set(doc(db, 'users', fromId), { 
-        stats: { completedSwaps: increment(1) } 
-      }, { merge: true });
-      batch.set(doc(db, 'users', toId), { 
-        stats: { completedSwaps: increment(1) } 
-      }, { merge: true });
+      // Update completed swaps count for both using dot notation to avoid clobbering other stats
+      batch.update(doc(db, 'users', fromId), { 
+        'stats.completedSwaps': increment(1),
+        updatedAt: serverTimestamp()
+      });
+      batch.update(doc(db, 'users', toId), { 
+        'stats.completedSwaps': increment(1),
+        updatedAt: serverTimestamp()
+      });
 
       // 2. Update inventories
       const myAlbums = await this.getAlbums(toId);
@@ -433,6 +444,36 @@ export const albumService = {
     } catch (e) {
       console.error("Error restoring purchases:", e);
       return false;
+    }
+  },
+
+  async getGlobalSettings() {
+    try {
+      const docSnap = await getDoc(doc(db, 'settings', 'global'));
+      if (docSnap.exists()) {
+        return docSnap.data();
+      }
+      return {
+        googleLoginEnabled: true,
+        passwordChangeEnabled: true
+      };
+    } catch (e) {
+      console.error("Error fetching global settings:", e);
+      return {
+        googleLoginEnabled: true,
+        passwordChangeEnabled: true
+      };
+    }
+  },
+
+  async updateGlobalSettings(settings: { googleLoginEnabled?: boolean, passwordChangeEnabled?: boolean }) {
+    try {
+      await setDoc(doc(db, 'settings', 'global'), {
+        ...settings,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, 'settings/global');
     }
   }
 };
