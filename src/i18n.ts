@@ -57,7 +57,8 @@ i18n
             ranking: "Ranking",
             bazar: "Marketplace",
             logout: "Log Out",
-            new_album: "New"
+            new_album: "New",
+            settings: "Settings"
           },
           stats: {
             total_progress: "Total Progress",
@@ -106,8 +107,8 @@ i18n
             confirm_swap: "Are you sure you want to complete this swap?",
             processing: "Processing...",
             swap_done: "Swap Done! ⚽️",
-            share_title: "Album 2026 Swap",
-            share_message: "Hi {{name}}! Here is our match for Album 2026:\n\n✅ I give you:\n{{give}}\n\n⚽️ You give me:\n{{get}}\n\nSee you!",
+            share_title: "ColeCollect Swap",
+            share_message: "Hi {{name}}! Here is our match for ColeCollect:\n\n✅ I give you:\n{{give}}\n\n⚽️ You give me:\n{{get}}\n\nSee you!",
             none_for_now: "None for now"
           },
           album: {
@@ -136,7 +137,7 @@ i18n
             premium_offline_exclusive_desc: "You can keep using the album without internet. Sincronization will resume when you are online.",
             premium_button: "Upgrade to PRO",
             premium_price: "$1.99 USD",
-            premium_modal_title: "Upgrade to Colediverti 2026 PRO",
+            premium_modal_title: "Upgrade to ColeCollect PRO",
             premium_modal_feature_offline: "Offline Mode: Track stickers without data",
             premium_modal_feature_stats: "Advanced Status: Charts and region progress",
             premium_modal_feature_export: "Collector's Export: CSV, PDF and Image (PNG)",
@@ -147,6 +148,7 @@ i18n
             export_csv: "Excel / CSV",
             export_image: "Image",
             export_pdf: "PDF",
+            export_text: "Plain Text (Copy)",
             filter_all: "All",
             filter_repeated: "Repeated",
             filter_missing: "Missing",
@@ -272,7 +274,8 @@ i18n
             ranking: "Ranking",
             bazar: "Bazar",
             logout: "Cerrar Sesión",
-            new_album: "Nuevo"
+            new_album: "Nuevo",
+            settings: "Configuración"
           },
           stats: {
             total_progress: "Progreso Total",
@@ -321,8 +324,8 @@ i18n
             confirm_swap: "¿Estás seguro de completar este cambio?",
             processing: "Procesando...",
             swap_done: "¡Cambio Realizado! ⚽️",
-            share_title: "Intercambio Album 2026",
-            share_message: "¡Hola {{name}}! Aquí tienes nuestro match para el álbum Album 2026:\n\n✅ Yo te llevo:\n{{give}}\n\n⚽️ Tú me traes:\n{{get}}\n\n¡Nos vemos pronto!",
+            share_title: "Intercambio ColeCollect",
+            share_message: "¡Hola {{name}}! Aquí tienes nuestro match para el álbum ColeCollect:\n\n✅ Yo te llevo:\n{{give}}\n\n⚽️ Tú me traes:\n{{get}}\n\n¡Nos vemos pronto!",
             none_for_now: "Ninguna por ahora"
           },
           album: {
@@ -351,7 +354,7 @@ i18n
             premium_offline_exclusive_desc: "Puedes seguir usando el álbum sin internet. La sincronización se retomará cuando estés en línea.",
             premium_button: "Mejorar a PRO",
             premium_price: "$1.99 USD",
-            premium_modal_title: "Mejora a Colediverti 2026 PRO",
+            premium_modal_title: "Mejora a ColeCollect PRO",
             premium_modal_feature_offline: "Modo Offline: Gestiona láminas sin datos",
             premium_modal_feature_stats: "Estado Avanzado: Gráficos y progreso regional",
             premium_modal_feature_export: "Exportación de Coleccionista: CSV, PDF e Imagen (PNG)",
@@ -362,6 +365,7 @@ i18n
             export_csv: "Excel / CSV",
             export_image: "Imagen",
             export_pdf: "PDF",
+            export_text: "Copiar Texto",
             filter_all: "Todas",
             filter_repeated: "Repetidas",
             filter_missing: "Faltantes",

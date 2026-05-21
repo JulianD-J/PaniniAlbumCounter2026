@@ -359,11 +359,13 @@ export const albumService = {
     }
   },
 
-  async createAlbum(userId: string, name: string) {
+  async createAlbum(userId: string, name: string, isInverseMode: boolean = false, cocaColaCount: number = 14) {
     try {
       const docRef = await addDoc(collection(db, 'albums'), {
         userId,
         name,
+        isInverseMode,
+        cocaColaCount,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
@@ -378,6 +380,17 @@ export const albumService = {
       await deleteDoc(doc(db, 'albums', albumId));
     } catch (e) {
       handleFirestoreError(e, OperationType.DELETE, `albums/${albumId}`);
+    }
+  },
+
+  async updateAlbumName(albumId: string, name: string) {
+    try {
+      await updateDoc(doc(db, 'albums', albumId), {
+        name,
+        updatedAt: serverTimestamp()
+      });
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, `albums/${albumId}`);
     }
   },
 
@@ -530,6 +543,54 @@ export const albumService = {
       await batch.commit();
     } catch (e) {
       handleFirestoreError(e, OperationType.WRITE, `transfer/${fromAlbumId}->${toAlbumId}`);
+    }
+  },
+
+  async getGlobalAllAppStats() {
+    try {
+      const q = query(collection(db, 'users'), limit(100));
+      const snapshot = await getDocs(q);
+      
+      let totalUsersCount = snapshot.size;
+      let totalSwapsCompleted = 0;
+      let totalCompletionPercentageSum = 0;
+      let highestCompletionRaw = 0;
+      let userWithHighestPercentage: { id: string, name: string, percentage: number } | null = null;
+      
+      snapshot.forEach(docSnap => {
+        const u = docSnap.data();
+        const swaps = u.stats?.completedSwaps || 0;
+        const completion = u.stats?.completionPercentage || 0;
+        
+        totalSwapsCompleted += swaps;
+        totalCompletionPercentageSum += completion;
+        
+        if (completion > highestCompletionRaw) {
+          highestCompletionRaw = completion;
+          userWithHighestPercentage = {
+            id: docSnap.id,
+            name: u.displayName || u.email || 'Anonymous',
+            percentage: completion
+          };
+        }
+      });
+      
+      const averageCompletion = totalUsersCount > 0 ? Math.round(totalCompletionPercentageSum / totalUsersCount) : 0;
+      
+      return {
+        totalUsers: totalUsersCount || 1,
+        totalSwaps: totalSwapsCompleted,
+        averageCompletionPercent: averageCompletion,
+        topCollector: userWithHighestPercentage
+      };
+    } catch (e) {
+      console.error("Failed to fetch global app stats", e);
+      return {
+        totalUsers: 1,
+        totalSwaps: 0,
+        averageCompletionPercent: 0,
+        topCollector: null
+      };
     }
   }
 };
