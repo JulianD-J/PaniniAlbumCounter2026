@@ -574,9 +574,6 @@ const ExportActions = ({
 }) => {
   const { t, i18n } = useTranslation();
   const [exporting, setExporting] = useState<string | null>(null);
-  const [showExportChoice, setShowExportChoice] = useState(false);
-  const [sheetsExportLoading, setSheetsExportLoading] = useState(false);
-  const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(null);
 
   const removeAccents = (str: string): string => {
     return str
@@ -585,113 +582,6 @@ const ExportActions = ({
       .replace(/[ñÑ]/g, c => c === 'ñ' ? 'n' : 'N');
   };
 
-  const getOrRequestAccessToken = async (): Promise<string | null> => {
-    if (googleAccessToken) return googleAccessToken;
-    
-    try {
-      const result = await signInWithPopup(auth, googleProvider);
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      if (credential?.accessToken) {
-        setGoogleAccessToken(credential.accessToken);
-        return credential.accessToken;
-      }
-    } catch (error) {
-      console.error("Error obtaining Google OAuth token:", error);
-      alert(i18n.language.startsWith('es')
-        ? "Error al iniciar sesion con Google para exportar a Sheets. Intentalo de nuevo."
-        : "Error signing in with Google to export to Sheets. Please try again.");
-    }
-    return null;
-  };
-
-  const handleExportGoogleSheets = async () => {
-    const isSpanish = i18n.language.startsWith('es');
-    setSheetsExportLoading(true);
-    try {
-      const token = await getOrRequestAccessToken();
-      if (!token) {
-        setSheetsExportLoading(false);
-        return;
-      }
-
-      const missingData = getMissingData();
-      const fields = isSpanish 
-        ? ["Pais / Seleccion", "Barajitas Faltantes"] 
-        : ["Country/Team", "Missing Stickers"];
-
-      const rows = missingData.map(item => {
-        let name = item.name;
-        let missingText = isSpanish 
-          ? `${item.codes.join(' ')} (faltantes)`
-          : `${item.codes.join(' ')} (missing)`;
-          
-        if (isSpanish) {
-          name = removeAccents(name);
-          missingText = removeAccents(missingText);
-        }
-        return [name, missingText];
-      });
-
-      const values = [fields, ...rows];
-
-      const title = isSpanish 
-        ? removeAccents(`Album 2026 - Laminas Faltantes de ${userName}`)
-        : `Album 2026 - Missing Stickers of ${userName}`;
-
-      const createResponse = await fetch('https://sheets.googleapis.com/v4/spreadsheets', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          properties: {
-            title: title
-          }
-        })
-      });
-
-      if (!createResponse.ok) {
-        const errorText = await createResponse.text();
-        throw new Error(`Failed to create spreadsheet: ${errorText}`);
-      }
-
-      const spreadsheet = await createResponse.json();
-      const spreadsheetId = spreadsheet.spreadsheetId;
-      const spreadsheetUrl = spreadsheet.spreadsheetUrl;
-
-      const updateResponse = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Sheet1!A1?valueInputOption=USER_ENTERED`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          values: values
-        })
-      });
-
-      if (!updateResponse.ok) {
-        throw new Error('Failed to update spreadsheet values');
-      }
-
-      alert(isSpanish 
-        ? "¡Lista exportada exitosamente a Google Sheets!" 
-        : "List exported successfully to Google Sheets!");
-      
-      if (spreadsheetUrl) {
-        window.open(spreadsheetUrl, '_blank');
-      }
-      setShowExportChoice(false);
-    } catch (err: any) {
-      console.error(err);
-      alert(isSpanish 
-        ? `Error al exportar: ${err.message || 'Error desconocido'}` 
-        : `Export failed: ${err.message || 'Unknown error'}`);
-    } finally {
-      setSheetsExportLoading(false);
-    }
-  };
   const printRef = useRef<HTMLDivElement>(null);
 
   const trialActive = isTrialActive(profile);
@@ -1001,8 +891,8 @@ const ExportActions = ({
     <>
       <div className="flex flex-wrap gap-2 mb-4">
         <button 
-          onClick={() => wrapHandler(() => setShowExportChoice(true), 'csv')}
-          className="flex-1 min-w-[120px] flex items-center justify-center gap-2 bg-white/5 border border-white/10 hover:border-fifa-gold/50 rounded-xl py-3 px-4 text-xs font-bold text-gray-300 hover:text-white transition-all group"
+          onClick={() => wrapHandler(handleExportCSV, 'csv')}
+          className="flex-1 min-w-[120px] flex items-center justify-center gap-2 bg-white/5 border border-white/10 hover:border-white/10 rounded-xl py-3 px-4 text-xs font-bold text-gray-300 hover:text-white transition-all group"
           style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.1)' }}
         >
           <FileSpreadsheet size={16} className="text-fifa-gold" />
@@ -1011,7 +901,7 @@ const ExportActions = ({
         </button>
         <button 
           onClick={() => wrapHandler(handleExportPDF, 'pdf')}
-          className="flex-1 min-w-[120px] flex items-center justify-center gap-2 bg-white/5 border border-white/10 hover:border-fifa-gold/50 rounded-xl py-3 px-4 text-xs font-bold text-gray-300 hover:text-white transition-all group"
+          className="flex-1 min-w-[120px] flex items-center justify-center gap-2 bg-white/5 border border-white/10 hover:border-white/10 rounded-xl py-3 px-4 text-xs font-bold text-gray-300 hover:text-white transition-all group"
           style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.1)' }}
         >
           <FileText size={16} className="text-fifa-gold" />
@@ -1021,7 +911,7 @@ const ExportActions = ({
         <button 
           onClick={() => wrapHandler(handleExportImage, 'image')}
           disabled={exporting === 'image'}
-          className="flex-1 min-w-[120px] flex items-center justify-center gap-2 bg-white/5 border border-white/10 hover:border-fifa-gold/50 rounded-xl py-3 px-4 text-xs font-bold text-gray-300 hover:text-white transition-all group disabled:opacity-50"
+          className="flex-1 min-w-[120px] flex items-center justify-center gap-2 bg-white/5 border border-white/10 hover:border-white/10 rounded-xl py-3 px-4 text-xs font-bold text-gray-300 hover:text-white transition-all group disabled:opacity-50"
           style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.1)' }}
         >
           {exporting === 'image' ? (
@@ -1034,7 +924,7 @@ const ExportActions = ({
         </button>
         <button 
           onClick={() => wrapHandler(handleExportText, 'text')}
-          className="flex-1 min-w-[120px] flex items-center justify-center gap-2 bg-white/5 border border-white/10 hover:border-fifa-gold/50 rounded-xl py-3 px-4 text-xs font-bold text-gray-300 hover:text-white transition-all group"
+          className="flex-1 min-w-[120px] flex items-center justify-center gap-2 bg-white/5 border border-white/10 hover:border-white/10 rounded-xl py-3 px-4 text-xs font-bold text-gray-300 hover:text-white transition-all group"
           style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.1)' }}
         >
           <Copy size={16} className="text-fifa-gold" />
@@ -1101,116 +991,6 @@ const ExportActions = ({
           </div>
         </div>
       </div>
-
-      <AnimatePresence>
-        {showExportChoice && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            {/* Backdrop */}
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowExportChoice(false)}
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            />
-            
-            {/* Modal Card */}
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className="relative w-full max-w-sm bg-[#16161a] border border-white/10 rounded-3xl p-6 shadow-2xl overflow-hidden z-10"
-            >
-              <div className="absolute top-0 right-0 p-4">
-                <button 
-                  onClick={() => setShowExportChoice(false)}
-                  className="p-1 rounded-full bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-all"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-
-              <div className="mb-6">
-                <div className="w-12 h-12 rounded-2xl bg-fifa-gold/10 flex items-center justify-center mb-4">
-                  <FileSpreadsheet className="text-fifa-gold" size={24} />
-                </div>
-                <h3 className="text-xl font-bold text-white tracking-tight">
-                  {i18n.language.startsWith('es') ? 'Exportar Excel / CSV' : 'Export Excel / CSV'}
-                </h3>
-                <p className="text-xs text-gray-400 mt-1">
-                  {i18n.language.startsWith('es') 
-                    ? 'Elige como deseas exportar tu coleccion de barajitas faltantes.' 
-                    : 'Choose how you want to export your missing stickers collection.'}
-                </p>
-              </div>
-
-              <div className="space-y-3">
-                {/* Option 1: File Download */}
-                <button
-                  onClick={() => {
-                    handleExportCSV();
-                    setShowExportChoice(false);
-                  }}
-                  className="w-full flex items-center gap-4 p-4 bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/10 rounded-2xl text-left transition-all active:scale-[0.98] group"
-                >
-                  <div className="w-10 h-10 rounded-xl bg-green-500/10 flex items-center justify-center shrink-0">
-                    <FileSpreadsheet className="text-green-500" size={20} />
-                  </div>
-                  <div className="flex-1">
-                    <h4 className="font-bold text-sm text-white group-hover:text-fifa-gold transition-colors">
-                      {i18n.language.startsWith('es') ? 'Descargar como Archivo' : 'Download as File'}
-                    </h4>
-                    <p className="text-[11px] text-gray-450 mt-0.5">
-                      {i18n.language.startsWith('es') 
-                        ? 'Obten un archivo CSV compatible con Excel' 
-                        : 'Get a CSV file compatible with Microsoft Excel'}
-                    </p>
-                  </div>
-                </button>
-
-                {/* Option 2: Google Sheets */}
-                <button
-                  onClick={handleExportGoogleSheets}
-                  disabled={sheetsExportLoading}
-                  className="w-full flex items-center gap-4 p-4 bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/10 rounded-2xl text-left transition-all active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none group"
-                >
-                  <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center shrink-0">
-                    {sheetsExportLoading ? (
-                      <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                    ) : (
-                      <img src="https://www.google.com/favicon.ico" className="w-5 h-5" alt="" />
-                    )}
-                  </div>
-                  <div className="flex-1">
-                    <h4 className="font-bold text-sm text-white group-hover:text-fifa-gold transition-colors flex items-center gap-1.5 font-sans">
-                      {i18n.language.startsWith('es') ? 'Exportar a Google Sheets' : 'Export to Google Sheets'}
-                      {sheetsExportLoading && (
-                        <span className="text-[9px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded uppercase font-bold tracking-wider animate-pulse font-mono">
-                          {i18n.language.startsWith('es') ? 'Procesando...' : 'Exporting...'}
-                        </span>
-                      )}
-                    </h4>
-                    <p className="text-[11px] text-gray-450 mt-0.5">
-                      {i18n.language.startsWith('es') 
-                        ? 'Crea una hoja de calculo nueva en tu Google Drive' 
-                        : 'Create a new online spreadsheet in your Google Drive'}
-                    </p>
-                  </div>
-                </button>
-              </div>
-
-              <div className="mt-6 flex justify-end">
-                <button
-                  onClick={() => setShowExportChoice(false)}
-                  className="px-4 py-2 text-xs font-bold text-gray-400 hover:text-white transition-all"
-                >
-                  {i18n.language.startsWith('es') ? 'Cancelar' : 'Cancel'}
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
     </>
   );
 };
@@ -1254,8 +1034,7 @@ const StickerItem = ({
   count, 
   onUpdate,
   isPremium,
-  onTransfer,
-  isInverseMode = false
+  onTransfer
 }: { 
   code: string, 
   status?: StickerStatus, 
@@ -1263,7 +1042,6 @@ const StickerItem = ({
   onUpdate: (code: string, status: StickerStatus, count: number) => void,
   isPremium?: boolean,
   onTransfer?: (code: string) => void,
-  isInverseMode?: boolean,
   key?: string | number
 }) => {
   const { t } = useTranslation();
@@ -1276,27 +1054,15 @@ const StickerItem = ({
     let nextStatus: StickerStatus = 'missing';
     let nextCount = 0;
     
-    if (isInverseMode) {
-      // In Inverse Mode, if missing, we mark as obtained (completing the ones we DIDN'T have)
-      // If obtained, we mark as missing
-      if (currentStatus === 'missing') {
-        nextStatus = 'obtained';
-        nextCount = 1;
-      } else {
-        nextStatus = 'missing';
-        nextCount = 0;
-      }
+    if (currentStatus === 'missing') {
+      nextStatus = 'obtained';
+      nextCount = 1;
+    } else if (currentStatus === 'obtained') {
+      nextStatus = 'repeated';
+      nextCount = 2;
     } else {
-      if (currentStatus === 'missing') {
-        nextStatus = 'obtained';
-        nextCount = 1;
-      } else if (currentStatus === 'obtained') {
-        nextStatus = 'repeated';
-        nextCount = 2;
-      } else {
-        nextStatus = 'missing';
-        nextCount = 0;
-      }
+      nextStatus = 'missing';
+      nextCount = 0;
     }
     onUpdate(code, nextStatus, nextCount);
   };
@@ -1387,8 +1153,7 @@ const Section = ({
   searchQuery = "",
   filter = "all",
   isPremium,
-  onTransfer,
-  isInverseMode
+  onTransfer
 }: { 
     title: string, 
     codes: string[], 
@@ -1398,7 +1163,6 @@ const Section = ({
     filter?: 'all' | 'repeated' | 'missing',
     isPremium?: boolean,
     onTransfer?: (code: string) => void,
-    isInverseMode?: boolean,
     key?: string | number
   }) => {
     const { t } = useTranslation();
@@ -1520,7 +1284,6 @@ const Section = ({
                     onUpdate={onUpdate}
                     isPremium={isPremium}
                     onTransfer={onTransfer}
-                    isInverseMode={isInverseMode}
                   />
                 </motion.div>
               ))}
@@ -3115,6 +2878,7 @@ const CommunityView = ({
 
 export default function App() {
   const { t, i18n } = useTranslation();
+  const isEs = i18n.language.startsWith('es');
 
   // Update html lang attribute
   useEffect(() => {
@@ -3174,9 +2938,17 @@ export default function App() {
   const [showOfflineAlert, setShowOfflineAlert] = useState(false);
   const [pendingMessages, setPendingMessages] = useState<any[]>([]);
   const [adminPremiumOverride, setAdminPremiumOverride] = useState(false);
-  const [globalSettings, setGlobalSettings] = useState({ googleLoginEnabled: true, passwordChangeEnabled: true });
+  const [globalSettings, setGlobalSettings] = useState({ 
+    googleLoginEnabled: true, 
+    passwordChangeEnabled: true,
+    announcementEnabled: false,
+    announcementText: ""
+  });
   const [showAdminDashboard, setShowAdminDashboard] = useState(false);
-  const isInverseMode = !!activeAlbum?.isInverseMode;
+  const [adminAnnouncementMessage, setAdminAnnouncementMessage] = useState("");
+  const [saveAnnounceLoading, setSaveAnnounceLoading] = useState(false);
+  const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
+  const [announcementHasBeenShown, setAnnouncementHasBeenShown] = useState(false);
   const albumCC = useMemo(() => {
     const count = activeAlbum?.cocaColaCount !== undefined ? activeAlbum.cocaColaCount : 14;
     if (!count || count === 0) return [];
@@ -3215,9 +2987,19 @@ export default function App() {
     const fetchSettings = async () => {
       const settings = await albumService.getGlobalSettings();
       setGlobalSettings(settings as any);
+      if (settings?.announcementText) {
+        setAdminAnnouncementMessage(settings.announcementText);
+      }
     };
     fetchSettings();
   }, []);
+
+  useEffect(() => {
+    if (globalSettings.announcementEnabled && globalSettings.announcementText && !announcementHasBeenShown) {
+      setShowAnnouncementModal(true);
+      setAnnouncementHasBeenShown(true);
+    }
+  }, [globalSettings, announcementHasBeenShown]);
 
   const isPremium = useMemo(() => {
     if (adminPremiumOverride) return true;
@@ -3547,11 +3329,7 @@ export default function App() {
     if (namePrompt === null) return; // Cancelled
     const name = namePrompt.trim() || defaultName;
 
-    const isInverse = confirm(
-      i18n.language.startsWith('es')
-        ? "¿Quieres llenar el álbum al inverso?\n\n[Aceptar] = Marcar las que te FALTAN (Inverso)\n[Cancelar] = Marcar las que ya TIENES (Normal)"
-        : "Do you want to fill the album in Inverse Mode?\n\n[OK] = Mark the ones you MISS (Inverse)\n[Cancel] = Mark the ones you HAVE (Normal)"
-    );
+    const isInverse = false;
 
     let cocaColaCount = 14;
     const ccPromptMsg = i18n.language.startsWith('es')
@@ -3969,6 +3747,50 @@ export default function App() {
   return (
     <div className="min-h-screen pb-20 selection:bg-fifa-gold selection:text-black w-full overflow-x-hidden">
       <AnimatePresence>
+        {/* User announcement modal shown when opening */}
+        {showAnnouncementModal && globalSettings.announcementEnabled && globalSettings.announcementText && (
+          <div className="fixed inset-0 z-[190] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/85 backdrop-blur-md" 
+              onClick={() => setShowAnnouncementModal(false)} 
+            />
+            <motion.div 
+              initial={{ scale: 0.9, y: 15, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.9, y: 15, opacity: 0 }}
+              transition={{ type: "spring", damping: 25, stiffness: 350 }}
+              className="relative w-full max-w-md bg-[#111113] border border-fifa-gold/30 rounded-[2.5rem] p-8 shadow-[0_0_80px_rgba(212,175,55,0.08)] overflow-hidden z-10"
+            >
+              {/* Top ambient highlight */}
+              <div className="absolute top-0 left-1/2 -translate-x-1/2 w-40 h-2 bg-gradient-to-r from-transparent via-fifa-gold/40 to-transparent rounded-full" />
+              
+              <div className="flex flex-col items-center text-center mt-3">
+                <div className="w-14 h-14 bg-fifa-gold/10 rounded-2xl flex items-center justify-center border border-fifa-gold/20 mb-5">
+                  <span className="text-2xl">📢</span>
+                </div>
+                
+                <h3 className="text-xl font-display font-black text-white tracking-tight mb-3">
+                  {isEs ? 'Anuncio Importante' : 'Important Announcement'}
+                </h3>
+                
+                <div className="w-full bg-white/[0.03] border border-white/5 rounded-2xl p-5 mb-6 text-sm text-gray-300 leading-relaxed text-left max-h-[250px] overflow-y-auto font-sans whitespace-pre-wrap">
+                  {globalSettings.announcementText}
+                </div>
+
+                <button
+                  onClick={() => setShowAnnouncementModal(false)}
+                  className="w-full py-3.5 bg-gradient-to-r from-fifa-gold to-yellow-500 hover:from-yellow-400 hover:to-yellow-500 text-black font-display font-black text-xs uppercase tracking-widest rounded-2xl transition-all border border-yellow-500/20 active:scale-[0.98] shadow-lg shadow-fifa-gold/15"
+                >
+                  {isEs ? 'Entendido' : 'Understood'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
         {isAdmin && showAdminDashboard && (
           <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
             <motion.div 
@@ -4048,6 +3870,64 @@ export default function App() {
                         className="absolute top-1.5 w-6 h-6 bg-white rounded-full shadow-lg" 
                       />
                     </button>
+                  </div>
+                </div>
+
+                <div className="group p-6 bg-white/5 rounded-[2rem] border border-white/5 hover:border-fifa-gold/20 transition-all space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-1">
+                      <h3 className="font-bold text-white group-hover:text-fifa-gold transition-colors">
+                        {isEs ? 'Mensaje de Apertura' : 'Opening Announcement'}
+                      </h3>
+                      <p className="text-xs text-gray-500 leading-relaxed max-w-[200px]">
+                        {isEs ? 'Muestra un aviso personalizado al abrir la aplicación.' : 'Display a custom greeting or notification on start.'}
+                      </p>
+                    </div>
+                    <button 
+                      onClick={() => {
+                        const next = !globalSettings.announcementEnabled;
+                        setGlobalSettings(s => ({ ...s, announcementEnabled: next }));
+                        albumService.updateGlobalSettings({ announcementEnabled: next });
+                      }}
+                      className={`w-16 h-9 rounded-full relative transition-all duration-300 shadow-inner ${globalSettings.announcementEnabled ? 'bg-fifa-gold' : 'bg-gray-800'}`}
+                    >
+                      <motion.div 
+                        animate={{ x: globalSettings.announcementEnabled ? 28 : 4 }}
+                        className="absolute top-1.5 w-6 h-6 bg-white rounded-full shadow-lg" 
+                      />
+                    </button>
+                  </div>
+
+                  <div className="space-y-2 pt-2 border-t border-white/5">
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">
+                      {isEs ? 'Personalizar Mensaje' : 'Personalize Message'}
+                    </label>
+                    <textarea
+                      value={adminAnnouncementMessage}
+                      onChange={(e) => setAdminAnnouncementMessage(e.target.value)}
+                      placeholder={isEs ? 'Escribe el aviso para tus usuarios aquí...' : 'Write the announcement for your users here...'}
+                      className="w-full h-24 bg-black/60 border border-white/10 rounded-2xl p-3 text-xs text-white focus:outline-none focus:border-fifa-gold/50 transition-colors resize-none"
+                    />
+                    <div className="flex justify-end">
+                      <button
+                        onClick={async () => {
+                          try {
+                            setSaveAnnounceLoading(true);
+                            await albumService.updateGlobalSettings({ announcementText: adminAnnouncementMessage });
+                            setGlobalSettings(s => ({ ...s, announcementText: adminAnnouncementMessage }));
+                            alert(isEs ? '¡Mensaje guardado correctamente!' : 'Message saved successfully!');
+                          } catch (err) {
+                            console.error(err);
+                          } finally {
+                            setSaveAnnounceLoading(false);
+                          }
+                        }}
+                        disabled={saveAnnounceLoading}
+                        className="px-4 py-2 bg-fifa-gold text-black text-xs font-bold rounded-xl hover:bg-yellow-500 transition-all active:scale-95 disabled:opacity-50"
+                      >
+                        {saveAnnounceLoading ? (isEs ? 'Guardando...' : 'Saving...') : (isEs ? 'Guardar Mensaje' : 'Save Message')}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -4426,7 +4306,6 @@ export default function App() {
                         setTransferStickerCode(code);
                         setShowTransferModal(true);
                       }}
-                      isInverseMode={isInverseMode}
                     />
                   )}
                   
@@ -4461,7 +4340,6 @@ export default function App() {
                         setTransferStickerCode(code);
                         setShowTransferModal(true);
                       }}
-                      isInverseMode={isInverseMode}
                     />
                   ))}
 
@@ -4484,7 +4362,6 @@ export default function App() {
                         setTransferStickerCode(code);
                         setShowTransferModal(true);
                       }}
-                      isInverseMode={isInverseMode}
                     />
                   )}
               </div>

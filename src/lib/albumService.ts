@@ -364,7 +364,7 @@ export const albumService = {
       const docRef = await addDoc(collection(db, 'albums'), {
         userId,
         name,
-        isInverseMode,
+        isInverseMode: false,
         cocaColaCount,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
@@ -469,22 +469,37 @@ export const albumService = {
     try {
       const docSnap = await getDoc(doc(db, 'settings', 'global'));
       if (docSnap.exists()) {
-        return docSnap.data();
+        const data = docSnap.data();
+        return {
+          googleLoginEnabled: data.googleLoginEnabled !== false,
+          passwordChangeEnabled: data.passwordChangeEnabled !== false,
+          announcementEnabled: !!data.announcementEnabled,
+          announcementText: data.announcementText || ""
+        };
       }
       return {
         googleLoginEnabled: true,
-        passwordChangeEnabled: true
+        passwordChangeEnabled: true,
+        announcementEnabled: false,
+        announcementText: ""
       };
     } catch (e) {
       console.error("Error fetching global settings:", e);
       return {
         googleLoginEnabled: true,
-        passwordChangeEnabled: true
+        passwordChangeEnabled: true,
+        announcementEnabled: false,
+        announcementText: ""
       };
     }
   },
 
-  async updateGlobalSettings(settings: { googleLoginEnabled?: boolean, passwordChangeEnabled?: boolean }) {
+  async updateGlobalSettings(settings: { 
+    googleLoginEnabled?: boolean; 
+    passwordChangeEnabled?: boolean;
+    announcementEnabled?: boolean;
+    announcementText?: string;
+  }) {
     try {
       await setDoc(doc(db, 'settings', 'global'), {
         ...settings,
