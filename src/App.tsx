@@ -92,6 +92,7 @@ import {
   CartesianGrid,
   Legend
 } from 'recharts';
+import { RPGProgressWidget } from './components/RPGProgressWidget';
 
 const hapticFeedback = async (style = ImpactStyle.Light) => {
   try {
@@ -2004,7 +2005,7 @@ const StatsTab = ({ inventory, isPremium, onUpgrade, activeAlbum, includeCocaCol
           </motion.div>
 
           {/* Gamified Achievements/Milestones columns */}
-          <motion.div variants={itemVariants} className="fifa-card p-8 bg-black/40 backdrop-blur-xl border-white/5">
+          <motion.div id="album-milestones-section" variants={itemVariants} className="fifa-card p-8 bg-black/40 backdrop-blur-xl border-white/5">
             <h3 className="font-display font-bold text-xl mb-6 flex items-center gap-3">
               <div className="p-2 bg-emerald-500/10 rounded-xl">
                 <Medal className="text-emerald-400" size={20} />
@@ -2016,42 +2017,60 @@ const StatsTab = ({ inventory, isPremium, onUpgrade, activeAlbum, includeCocaCol
               {stats.achievements.map((ach) => {
                 const Icon = ach.icon;
                 return (
-                  <div 
+                  <motion.div 
                     key={ach.id} 
+                    whileHover={ach.unlocked ? { y: -2, scale: 1.01 } : {}}
+                    transition={{ type: "spring", stiffness: 400, damping: 17 }}
                     className={`p-4 rounded-2xl border transition-all relative overflow-hidden flex items-start gap-4 ${
                       ach.unlocked 
-                        ? 'bg-white/[0.04] border-white/10 shadow-lg shadow-emerald-500/5' 
+                        ? 'bg-gradient-to-br from-white/[0.04] to-transparent border-white/10 shadow-lg shadow-emerald-500/[0.02] hover:border-fifa-gold/40 hover:shadow-[0_0_25px_rgba(212,175,55,0.05)]' 
                         : 'bg-white/[0.01] border-white/5 opacity-50'
                     }`}
                   >
                     <div className={`p-3 rounded-xl shrink-0 ${ach.unlocked ? ach.color : 'bg-white/5 text-gray-600'}`}>
                       {ach.unlocked ? (
-                        <Icon size={18} />
+                        <Icon size={18} className="animate-pulse" />
                       ) : (
                         <Lock size={18} />
                       )}
                     </div>
-                    <div className="space-y-1 overflow-hidden">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className={`text-sm font-bold truncate ${ach.unlocked ? 'text-white' : 'text-gray-500'}`}>
-                          {ach.title}
-                        </span>
-                        {ach.unlocked && (
-                          <span className="p-0.5 rounded-full bg-emerald-500 text-[8px] font-bold text-white uppercase tracking-wider">
-                            ✓
+                    <div className="space-y-1 overflow-hidden flex-1">
+                      <div className="flex items-center justify-between gap-1.5 flex-wrap">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className={`text-sm font-bold truncate ${ach.unlocked ? 'text-white' : 'text-gray-500'}`}>
+                            {ach.title}
                           </span>
-                        )}
+                          {ach.unlocked && (
+                            <span className="p-0.5 rounded-full bg-emerald-500 text-[8px] font-bold text-white uppercase tracking-wider shrink-0">
+                              ✓
+                            </span>
+                          )}
+                        </div>
+                        
+                        {/* EXP rewarding tag */}
+                        <span className={`text-[8px] font-mono font-black tracking-widest uppercase px-1.5 py-0.5 rounded ${ach.unlocked ? 'bg-amber-400/10 text-fifa-gold border border-amber-400/20' : 'bg-white/5 text-gray-500'}`}>
+                          +100 EXP
+                        </span>
                       </div>
                       <p className="text-[11px] text-gray-400 leading-tight">
                         {ach.desc}
                       </p>
-                      <div className="pt-2">
+                      <div className="pt-2 flex items-center justify-between">
                         <span className="text-[9px] font-mono font-bold text-gray-500 uppercase bg-white/5 px-2 py-0.5 rounded-md">
                           {ach.progress}
                         </span>
+                        {ach.unlocked ? (
+                          <span className="text-[9px] text-emerald-400 font-bold uppercase tracking-wider">
+                            {isEs ? "Desbloqueado" : "UNLOCKED"}
+                          </span>
+                        ) : (
+                          <span className="text-[9px] text-gray-600 font-bold uppercase tracking-wider">
+                            {isEs ? "Bloqueado" : "LOCKED"}
+                          </span>
+                        )}
                       </div>
                     </div>
-                  </div>
+                  </motion.div>
                 );
               })}
             </div>
@@ -3598,6 +3617,141 @@ export default function App() {
     return { obtained: totalObtained, total: allExpected.length, repeated: totalRepeated };
   }, [inventory, albumCC, includeCocaColaInStats]);
 
+  const appAchievements = useMemo(() => {
+    const finalObtained = totalStats.obtained;
+    const grandTotal = totalStats.total;
+    const progressPercent = grandTotal > 0 ? Math.round((finalObtained / grandTotal) * 100) : 0;
+    const repeatedTotal = totalStats.repeated;
+
+    let specialsObtained = 0;
+    SPECIALS.forEach(c => {
+      if (inventory[c]?.status === 'obtained' || inventory[c]?.status === 'repeated') {
+        specialsObtained++;
+      }
+    });
+
+    let completedTeamsCount = 0;
+    TEAMS.forEach(team => {
+      let obtained = 0;
+      for (let i = 1; i <= 20; i++) {
+        const c = `${team}${i}`;
+        const item = inventory[c];
+        if (item?.status === 'obtained' || item?.status === 'repeated') {
+          obtained++;
+        }
+      }
+      if (obtained === 20) {
+        completedTeamsCount++;
+      }
+    });
+
+    let cocaColaObtained = 0;
+    albumCC.forEach(c => {
+      if (inventory[c]?.status === 'obtained' || inventory[c]?.status === 'repeated') {
+        cocaColaObtained++;
+      }
+    });
+
+    return [
+      {
+        id: 'kickoff',
+        title: isEs ? 'Saque Inicial' : 'Kickoff',
+        desc: isEs ? 'Obtén tu primera estampa' : 'Obtain your first sticker',
+        unlocked: finalObtained >= 1,
+        progress: `${finalObtained}/1`,
+        color: 'text-amber-400 bg-amber-400/10 border-amber-500/20'
+      },
+      {
+        id: 'collector',
+        title: isEs ? 'Coleccionista Constante' : 'Steady Collector',
+        desc: isEs ? 'Colecciona 100+ estampas únicas' : 'Collect 100+ unique stickers',
+        unlocked: finalObtained >= 100,
+        progress: `${finalObtained}/100`,
+        color: 'text-indigo-400 bg-indigo-400/10 border-indigo-500/20'
+      },
+      {
+        id: 'halfway',
+        title: isEs ? 'A Mitad de Camino' : 'Halfway there',
+        desc: isEs ? 'Colecciona el 50% del álbum' : 'Collect 50% of the entire album',
+        unlocked: progressPercent >= 50,
+        progress: `${progressPercent}%/50%`,
+        color: 'text-cyan-400 bg-cyan-400/10 border-cyan-500/20'
+      },
+      {
+        id: 'teamplayer',
+        title: isEs ? 'Trabajo en Equipo' : 'Team Player',
+        desc: isEs ? 'Completa tu primer equipo' : 'Complete your first squad section (20/20)',
+        unlocked: completedTeamsCount >= 1,
+        progress: `${completedTeamsCount} squads`,
+        color: 'text-emerald-400 bg-emerald-400/10 border-emerald-500/20'
+      },
+      {
+        id: 'doubletrouble',
+        title: isEs ? 'Súper Repetido' : 'Double Trouble',
+        desc: isEs ? 'Acumula más de 20 repetidas' : 'Accumulate 20+ repeated stickers',
+        unlocked: repeatedTotal >= 20,
+        progress: `${repeatedTotal}/20`,
+        color: 'text-rose-400 bg-rose-400/10 border-rose-500/20'
+      },
+      {
+        id: 'trademaster',
+        title: isEs ? 'Rey del Intercambio' : 'Trade Master',
+        desc: isEs ? 'Acumula más de 50 estampas repetidas' : 'Accumulate 50+ repeated stickers',
+        unlocked: repeatedTotal >= 50,
+        progress: `${repeatedTotal}/50`,
+        color: 'text-orange-400 bg-orange-400/10 border-orange-500/20'
+      },
+      {
+        id: 'specialist',
+        title: isEs ? 'Especialista FWC' : 'FWC Specialist',
+        desc: isEs ? 'Obtén 15+ especiales FWC' : 'Obtain 15+ special FWC stickers',
+        unlocked: specialsObtained >= 15,
+        progress: `${specialsObtained}/15`,
+        color: 'text-fifa-gold bg-fifa-gold/10 border-fifa-gold/20'
+      },
+      {
+        id: 'cokeaddict',
+        title: isEs ? 'Fanático de la Roja' : 'Coca-Cola Fanatic',
+        desc: isEs ? 'Consigue 6+ estampas de Coca-Cola' : 'Collect 6+ Coca-Cola stickers',
+        unlocked: cocaColaObtained >= 6,
+        progress: `${cocaColaObtained}/6`,
+        color: 'text-red-400 bg-red-400/10 border-red-500/20'
+      },
+      {
+        id: 'continental',
+        title: isEs ? 'Campeón Continental' : 'Continental Champion',
+        desc: isEs ? 'Completa 5 secciones de equipos' : 'Complete 5 squad sections (20/20)',
+        unlocked: completedTeamsCount >= 5,
+        progress: `${completedTeamsCount}/5`,
+        color: 'text-teal-400 bg-teal-400/10 border-teal-500/20'
+      },
+      {
+        id: 'firstclass',
+        title: isEs ? 'Miembro Premium' : 'Premium Member',
+        desc: isEs ? 'Desbloquea las funciones Premium de la app' : 'Unlock Premium features on the app',
+        unlocked: isPremium,
+        progress: isPremium ? (isEs ? '¡Desbloqueado!' : 'Unlocked!') : (isEs ? 'Pendiente' : 'Pending'),
+        color: 'text-pink-400 bg-pink-400/10 border-pink-500/20'
+      },
+      {
+        id: 'legend',
+        title: isEs ? 'Leyenda del Álbum' : 'Album Legend',
+        desc: isEs ? 'Alcanza el 90% del álbum' : 'Reach 90% overall progress',
+        unlocked: progressPercent >= 90,
+        progress: `${progressPercent}%/90%`,
+        color: 'text-purple-400 bg-purple-400/10 border-purple-500/20'
+      },
+      {
+        id: 'perfectionist',
+        title: isEs ? 'Colección Perfecta' : 'Perfect Collection',
+        desc: isEs ? 'Alcanza el 100% de la colección' : 'Reach 100% overall unique progress',
+        unlocked: progressPercent >= 100,
+        progress: `${progressPercent}%/100%`,
+        color: 'text-emerald-400 bg-emerald-400/10 border-emerald-500/20'
+      }
+    ];
+  }, [inventory, albumCC, isEs, includeCocaColaInStats, totalStats, isPremium]);
+
   // Sync stats to Firestore
   useEffect(() => {
     if (user && totalStats.total > 0) {
@@ -4139,6 +4293,25 @@ export default function App() {
             >
               {!isPremium && <PremiumBanner onUpgrade={() => setShowPremiumModal(true)} type="offline" />}
               
+              <div className="mb-6">
+                <RPGProgressWidget 
+                  obtained={totalStats.obtained}
+                  total={totalStats.total}
+                  repeated={totalStats.repeated}
+                  isEs={isEs}
+                  achievements={appAchievements}
+                  onScrollToMilestones={() => {
+                    setView('stats');
+                    setTimeout(() => {
+                      const section = document.getElementById('album-milestones-section');
+                      if (section) {
+                        section.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      }
+                    }, 150);
+                  }}
+                />
+              </div>
+
               <ExportActions 
                 inventory={inventory} 
                 isPremium={isPremium} 
