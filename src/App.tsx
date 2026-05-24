@@ -4095,50 +4095,61 @@ export default function App() {
         )}
       </AnimatePresence>
       {/* Header */}
-      <header className="sticky top-0 z-50 bg-dark-bg/80 backdrop-blur-xl border-b border-white/5">
-        <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-white/5 rounded-lg flex items-center justify-center overflow-hidden border border-white/10">
-              <img src="https://i.postimg.cc/gkYK9kXr/Logo-Album-2026.png" className="w-8 h-8 object-contain" alt="" />
-            </div>
-            <div className="flex flex-col">
-              <div className="flex items-center gap-2">
-                <h1 className="font-display font-bold text-xl hidden sm:block">ColeCollect</h1>
-                {user.email === 'juliand.colediverti@gmail.com' && (
-                  <button 
-                    onClick={() => setAdminPremiumOverride(!adminPremiumOverride)}
-                    className={`p-1 rounded-md border transition-colors ${isPremium ? 'bg-green-500/20 border-green-500/50 text-green-400' : 'bg-white/5 border-white/10 text-gray-500'}`}
-                    title="Toggle Admin PRO"
-                  >
-                    <ShieldCheck size={14} />
-                  </button>
-                )}
+      <header className="sticky top-0 z-50 bg-dark-bg/90 backdrop-blur-xl border-b border-white/5 pt-8 sm:pt-4 pb-2 sm:pb-3">
+        <div className="max-w-5xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4 flex-wrap">
+          <div className="flex items-center justify-between w-full sm:w-auto gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-white/5 rounded-lg flex items-center justify-center overflow-hidden border border-white/10 shrink-0">
+                <img src="https://i.postimg.cc/gkYK9kXr/Logo-Album-2026.png" className="w-8 h-8 object-contain" alt="" />
+              </div>
+              <div className="flex flex-col">
+                <div className="flex items-center gap-2">
+                  <h1 className="font-display font-bold text-xl block">ColeCollect</h1>
+                  {user.email === 'juliand.colediverti@gmail.com' && (
+                    <button 
+                      onClick={() => setAdminPremiumOverride(!adminPremiumOverride)}
+                      className={`p-1 rounded-md border transition-colors ${isPremium ? 'bg-green-500/20 border-green-500/50 text-green-400' : 'bg-white/5 border-white/10 text-gray-500'}`}
+                      title="Toggle Admin PRO"
+                    >
+                      <ShieldCheck size={14} />
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
-
-          <div className="flex items-center gap-4">
             {isAdmin && (
               <button 
                 onClick={() => setShowAdminDashboard(true)}
-                className="p-2.5 bg-fifa-gold/10 hover:bg-fifa-gold/20 text-fifa-gold border border-fifa-gold/30 rounded-xl transition-all"
+                className="p-2.5 bg-fifa-gold/10 hover:bg-fifa-gold/20 text-fifa-gold border border-fifa-gold/30 rounded-xl transition-all sm:hidden animate-pulse"
+                title="Admin Dashboard"
+              >
+                <Settings size={18} />
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-4 w-full sm:w-auto">
+            {isAdmin && (
+              <button 
+                onClick={() => setShowAdminDashboard(true)}
+                className="p-2.5 bg-fifa-gold/10 hover:bg-fifa-gold/20 text-fifa-gold border border-fifa-gold/30 rounded-xl transition-all hidden sm:block"
                 title="Admin Dashboard"
               >
                 <Settings size={20} />
               </button>
             )}
-            <div className="hidden md:flex gap-2 mr-4">
+            <div className="hidden md:flex gap-2 mr-2">
               <button 
                 onClick={() => navigateView('collection')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold transition-all ${view === 'collection' ? 'text-fifa-gold' : 'text-gray-400 hover:text-white'}`}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl font-bold transition-all ${view === 'collection' ? 'text-fifa-gold' : 'text-gray-400 hover:text-white'}`}
               >
-                <AlbumIcon size={18} /> {t('nav.album')}
+                <AlbumIcon size={16} /> {t('nav.album')}
               </button>
               <button 
                 onClick={() => navigateView('community')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold transition-all relative ${view === 'community' ? 'text-fifa-gold' : 'text-gray-400 hover:text-white'}`}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl font-bold transition-all relative ${view === 'community' ? 'text-fifa-gold' : 'text-gray-450 hover:text-white'}`}
               >
-                <Users size={18} /> {t('nav.community')}
+                <Users size={16} /> {t('nav.community')}
                 {pendingMessages.length > 0 && (
                   <span className="absolute -top-1 -right-1 w-4 h-4 bg-fifa-red text-white text-[10px] flex items-center justify-center rounded-full border-2 border-dark-bg animate-bounce">
                     {pendingMessages.length}
@@ -4147,24 +4158,24 @@ export default function App() {
               </button>
               <button 
                 onClick={() => navigateView('stats')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold transition-all ${view === 'stats' ? 'text-fifa-gold' : 'text-gray-400 hover:text-white'}`}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl font-bold transition-all ${view === 'stats' ? 'text-fifa-gold' : 'text-gray-400 hover:text-white'}`}
               >
-                <BarChart3 size={18} /> {t('nav.stats')}
+                <BarChart3 size={16} /> {t('nav.stats')}
               </button>
               <button 
                 onClick={loadRanking}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-gray-400 hover:text-white transition-all"
+                className="flex items-center gap-2 px-3 py-1.5 rounded-xl font-bold text-gray-400 hover:text-white transition-all"
               >
-                <TrendingUp size={18} /> {t('nav.ranking')}
+                <TrendingUp size={16} /> {t('nav.ranking')}
               </button>
             </div>
             
-            <div className="flex bg-white/5 rounded-full p-1 border border-white/5 overflow-x-auto max-w-[150px] min-[380px]:max-w-[180px] xs:max-w-[220px] sm:max-w-none scrollbar-none shrink-0">
+            <div className="flex bg-white/5 rounded-full p-1 border border-white/5 overflow-x-auto max-w-full sm:max-w-none scrollbar-none shrink-0 w-full sm:w-auto justify-start sm:justify-end">
               {albums.map((album) => (
                 <button
                   key={album.id}
                   onClick={() => setActiveAlbum(album)}
-                  className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all shrink-0 whitespace-nowrap ${activeAlbum?.id === album.id ? 'bg-fifa-gold text-black shadow-lg' : 'text-gray-400 hover:text-white'}`}
+                  className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all shrink-0 whitespace-nowrap ${activeAlbum?.id === album.id ? 'bg-fifa-gold text-black shadow-lg' : 'text-gray-400 hover:text-white'}`}
                 >
                   {album.name}
                 </button>
@@ -4172,7 +4183,7 @@ export default function App() {
               {albums.length < (isPremium ? 3 : 1) && (
                 <button 
                   onClick={handleCreateAlbum}
-                  className="px-4 py-1.5 rounded-full text-xs font-bold text-gray-500 hover:text-white transition-all flex items-center gap-1 shrink-0 whitespace-nowrap"
+                  className="px-3.5 py-1.5 rounded-full text-xs font-bold text-gray-500 hover:text-white transition-all flex items-center gap-1 shrink-0 whitespace-nowrap"
                 >
                   <Plus size={14} /> {t('nav.new_album')}
                 </button>
@@ -4199,14 +4210,14 @@ export default function App() {
 
       <main className="max-w-5xl mx-auto px-4 mt-8">
         {/* Profile Card */}
-        <div className="fifa-card p-6 mb-8 relative overflow-hidden">
+        <div className="fifa-card h-auto p-5 sm:p-8 mb-8 relative overflow-hidden">
           <div className="absolute top-0 right-0 p-8 opacity-10">
             <BarChart3 size={120} />
           </div>
           
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
-            <div className="flex-1">
-              <div className="flex items-center gap-3 mb-6">
+            <div className="flex-1 min-w-0">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 mb-6">
                 <div 
                   onClick={() => {
                     if (!globalSettings.passwordChangeEnabled && !isAdmin) {
@@ -4228,19 +4239,21 @@ export default function App() {
                     </div>
                   )}
                 </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h2 className="font-bold text-lg">{user.displayName}</h2>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="font-bold text-lg text-white truncate max-w-full">{user.displayName}</h2>
                     {isPremium && (
-                      <span className="flex items-center gap-1 px-2 py-0.5 bg-fifa-gold text-black text-[10px] font-black rounded-full uppercase italic tracking-tighter">
+                      <span className="flex items-center gap-1 px-2 py-0.5 bg-fifa-gold text-black text-[10px] font-black rounded-full uppercase italic tracking-tighter shrink-0">
                         <Diamond size={10} /> PRO
                       </span>
                     )}
                   </div>
-                  <p className="text-gray-400 text-sm">{activeAlbum?.name || 'Selecciona un álbum'}</p>
+                  <p className="text-gray-400 text-sm mt-0.5">{activeAlbum?.name || 'Selecciona un álbum'}</p>
                   
                   {isGoogleUser && (
-                    <p className="text-[10px] text-fifa-gold/60 mt-0.5">{t('auth.password_hint')}</p>
+                    <p className="text-[11px] sm:text-[10px] text-fifa-gold/75 mt-1.5 whitespace-normal break-words leading-normal max-w-full sm:max-w-md">
+                      {t('auth.password_hint')}
+                    </p>
                   )}
 
                   {userProfile?.badges && userProfile.badges.length > 0 && (
