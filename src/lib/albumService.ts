@@ -18,6 +18,7 @@ import {
 } from 'firebase/firestore';
 import { linkWithPopup, GoogleAuthProvider } from 'firebase/auth';
 import { BillingPlugin } from 'capacitor-billing';
+import { Capacitor } from '@capacitor/core';
 import { db, auth } from './firebase';
 
 export enum OperationType {
@@ -444,6 +445,9 @@ export const albumService = {
 
   async restorePurchases(userId: string) {
     try {
+      if (!Capacitor.isNativePlatform()) {
+        throw new Error("La restauración de compras de Google Play solo está disponible en la aplicación Android.");
+      }
       // Use BillingPlugin to query purchases
       const { purchases } = await (BillingPlugin as any).queryPurchases({ type: 'inapp' });
       

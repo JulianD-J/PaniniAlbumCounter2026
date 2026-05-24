@@ -78,6 +78,8 @@ import html2canvas from 'html2canvas';
 import Papa from 'papaparse';
 import { motion, AnimatePresence } from 'motion/react';
 import { Capacitor } from '@capacitor/core';
+import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { 
   PieChart, 
@@ -637,7 +639,7 @@ const ExportActions = ({
     return missing;
   };
 
-  const handleExportCSV = () => {
+  const handleExportCSV = async () => {
     const isSpanish = i18n.language.startsWith('es');
     const missingData = getMissingData();
     
@@ -663,17 +665,40 @@ const ExportActions = ({
       data: rows
     });
     
-    const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csv], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-    link.setAttribute("href", url);
-    link.setAttribute("download", `Album2026_Missing_${userName?.replace(/\s+/g, '_') || 'collector'}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    if (Capacitor.isNativePlatform()) {
+      const filename = `Album2026_Missing_${userName?.replace(/\s+/g, '_') || 'collector'}.csv`;
+      try {
+        await Filesystem.writeFile({
+          path: filename,
+          data: csv,
+          directory: Directory.Documents,
+          encoding: Encoding.UTF8
+        });
+        alert(isSpanish 
+          ? `Archivo CSV guardado exitosamente en tus Documentos como: ${filename}` 
+          : `CSV file successfully saved in your Documents folder as: ${filename}`
+        );
+      } catch (error: any) {
+        console.error("Error saving CSV to Documents", error);
+        alert(isSpanish
+          ? `Error al guardar archivo: ${error.message || error}`
+          : `Error saving file: ${error.message || error}`
+        );
+      }
+    } else {
+      const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csv], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement("a");
+      const url = URL.createObjectURL(blob);
+      link.setAttribute("href", url);
+      link.setAttribute("download", `Album2026_Missing_${userName?.replace(/\s+/g, '_') || 'collector'}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
   };
 
-  const handleExportPDF = () => {
+  const handleExportPDF = async () => {
+    const isSpanish = i18n.language.startsWith('es');
     const doc = new jsPDF();
     doc.setFontSize(20);
     doc.text(`ColeCollect - ${userName}`, 14, 20);
@@ -695,10 +720,37 @@ const ExportActions = ({
       }
     });
 
-    doc.save(`Album2026_Missing_${userName?.replace(/\s+/g, '_') || 'collector'}.pdf`);
+    if (Capacitor.isNativePlatform()) {
+      const filename = `Album2026_Missing_${userName?.replace(/\s+/g, '_') || 'collector'}.pdf`;
+      try {
+        const pdfOutput = doc.output('datauristring');
+        const base64Data = pdfOutput.split(';base64,')[1];
+        
+        const result = await Filesystem.writeFile({
+          path: filename,
+          data: base64Data,
+          directory: Directory.Cache
+        });
+        
+        await Share.share({
+          title: isSpanish ? 'Compartir PDF de Faltantes' : 'Share Missing Stickers PDF',
+          text: isSpanish ? 'Aquí tienes mi lista de estampas faltantes de ColeCollect.' : 'Here is my list of missing stickers from ColeCollect.',
+          url: result.uri,
+          dialogTitle: isSpanish ? 'Compartir con...' : 'Share with...'
+        });
+      } catch (error: any) {
+        console.error("Error sharing PDF natively", error);
+        alert(isSpanish
+          ? `Error al compartir PDF: ${error.message || error}`
+          : `Error sharing PDF: ${error.message || error}`
+        );
+      }
+    } else {
+      doc.save(`Album2026_Missing_${userName?.replace(/\s+/g, '_') || 'collector'}.pdf`);
+    }
   };
 
-  const handleExportText = () => {
+  const handleExportText = async () => {
     let text = `ColeCollect- Lista\n`;
     text += `${activeAlbum?.name || 'Álbum Mundial 2026'}\n\n`;
 
@@ -830,43 +882,78 @@ const ExportActions = ({
 
     text += `\nDescarga la app\nhttps://play.google.com/store/apps/details?id=com.colediverti.album2026\n`;
 
-    navigator.clipboard.writeText(text).then(() => {
-      alert(i18n.language.startsWith('es') ? '¡Copiado al portapapeles correctamente!' : 'Copied to clipboard successfully!');
-    }).catch(err => {
-      console.error('Failed to copy', err);
-    });
+    const isSpanish = i18n.language.startsWith('es');
+    if (Capacitor.isNativePlatform()) {
+      try {
+        await Share.share({
+          title: isSpanish ? 'Lista de Estampas de ColeCollect' : 'ColeCollect Sticker List',
+          text: text,
+          dialogTitle: isSpanish ? 'Compartir lista por...' : 'Share list via...'
+        });
+      } catch (error: any) {
+        console.error("Error sharing text natively", error);
+        navigator.clipboard.writeText(text).then(() => {
+          alert(isSpanish ? '¡Copiado al portapapeles correctamente!' : 'Copied to clipboard successfully!');
+        });
+      }
+    } else {
+      navigator.clipboard.writeText(text).then(() => {
+        alert(isSpanish ? '¡Copiado al portapapeles correctamente!' : 'Copied to clipboard successfully!');
+      }).catch(err => {
+        console.error('Failed to copy', err);
+      });
+    }
   };
 
   const handleExportImage = async () => {
     if (!printRef.current) return;
     setExporting('image');
+    const isSpanish = i18n.language.startsWith('es');
     try {
       const canvas = await html2canvas(printRef.current, {
         backgroundColor: '#0a0a0b',
         scale: 2,
         logging: false,
         useCORS: true,
-        // Force ignore some CSS properties that might cause issues with oklch
         onclone: (doc) => {
-          const elements = doc.querySelectorAll('*');
-          elements.forEach((el: any) => {
-            // We'll trust our clean template, but this is a safety net
-          });
+          // Safety net
         }
       });
       const image = canvas.toDataURL("image/png");
-      const link = document.createElement("a");
-      link.href = image;
-      link.download = `Album2026_${userName?.replace(/\s+/g, '_') || 'collector'}.png`;
-      link.click();
-    } catch (e) {
+      if (Capacitor.isNativePlatform()) {
+        const base64Data = image.split(';base64,')[1];
+        const filename = `Album2026_${userName?.replace(/\s+/g, '_') || 'collector'}.png`;
+        
+        const result = await Filesystem.writeFile({
+          path: filename,
+          data: base64Data,
+          directory: Directory.Cache
+        });
+        
+        await Share.share({
+          title: isSpanish ? 'Compartir Imagen de Álbum' : 'Share Album Image',
+          text: isSpanish ? '¡Mira el progreso de mi álbum en ColeCollect!' : 'Look at my album progress on ColeCollect!',
+          url: result.uri,
+          dialogTitle: isSpanish ? 'Compartir con...' : 'Share with...'
+        });
+      } else {
+        const link = document.createElement("a");
+        link.href = image;
+        link.download = `Album2026_${userName?.replace(/\s+/g, '_') || 'collector'}.png`;
+        link.click();
+      }
+    } catch (e: any) {
       console.error(e);
+      alert(isSpanish 
+        ? `Error al exportar imagen: ${e.message || e}` 
+        : `Error exporting image: ${e.message || e}`
+      );
     } finally {
       setExporting(null);
     }
   };
 
-  const wrapHandler = async (handler: () => void, type: string) => {
+  const wrapHandler = async (handler: () => void | Promise<void>, type: string) => {
     if (!isPremium && !trialActive) {
       onUpgradeRequest();
       return;
@@ -883,7 +970,7 @@ const ExportActions = ({
       if (!success) return;
     }
 
-    handler();
+    await handler();
   };
 
   const missingGroups = getMissingData();
@@ -2933,6 +3020,7 @@ export default function App() {
 
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
   const [albums, setAlbums] = useState<any[]>([]);
   const [activeAlbum, setActiveAlbum] = useState<any>(null);
   const [inventory, setInventory] = useState<Record<string, any>>({});
@@ -3200,15 +3288,27 @@ export default function App() {
   useEffect(() => {
     if (user) {
       loadAlbums();
+    } else {
+      setIsLoading(false);
     }
   }, [user]);
 
   const loadAlbums = async () => {
-    if (!user) return;
-    const data = await albumService.getAlbums(user.uid);
-    setAlbums(data || []);
-    if (data && data.length > 0 && !activeAlbum) {
-      setActiveAlbum(data[0]);
+    if (!user) {
+      setIsLoading(false);
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const data = await albumService.getAlbums(user.uid);
+      setAlbums(data || []);
+      if (data && data.length > 0 && !activeAlbum) {
+        setActiveAlbum(data[0]);
+      }
+    } catch (e) {
+      console.error("Error loading albums", e);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -3898,6 +3998,109 @@ export default function App() {
     </div>
   );
 
+  if (isLoading) return (
+    <div className="min-h-screen bg-[#0A0A0B] text-white pb-20 selection:bg-fifa-gold selection:text-black w-full overflow-x-hidden">
+      {/* Skeleton Header / Navbar */}
+      <header className="sticky top-0 z-50 bg-[#0A0A0B]/90 backdrop-blur-xl border-b border-white/5 pt-8 sm:pt-4 pb-2 sm:pb-3">
+        <div className="max-w-5xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4 flex-wrap animate-pulse">
+          <div className="flex items-center justify-between w-full sm:w-auto gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-white/5 rounded-lg border border-white/10 shrink-0" />
+              <div className="h-6 w-32 bg-white/10 rounded-lg" />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-4 w-full sm:w-auto">
+            <div className="hidden md:flex gap-3">
+              <div className="h-8 w-20 bg-white/5 rounded-xl border border-white/5" />
+              <div className="h-8 w-24 bg-white/5 rounded-xl border border-white/5" />
+              <div className="h-8 w-20 bg-white/5 rounded-xl border border-white/5" />
+              <div className="h-8 w-20 bg-white/5 rounded-xl border border-white/5" />
+            </div>
+            
+            <div className="flex bg-white/5 rounded-full p-1 border border-white/5 w-full sm:w-auto justify-start sm:justify-end">
+              <div className="h-7 w-28 bg-white/10 rounded-full" />
+              <div className="h-7 w-12 bg-white/5 rounded-full" />
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Skeleton Main Container */}
+      <main className="max-w-5xl mx-auto px-4 mt-8 space-y-8 animate-pulse">
+        {/* Skeleton Profile Card */}
+        <div className="fifa-card h-auto p-5 sm:p-8 relative overflow-hidden bg-white/[0.01] border border-white/5 rounded-[2rem]">
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+            <div className="flex-1 min-w-0">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 mb-6">
+                <div className="w-12 h-12 rounded-full bg-white/10 border-2 border-white/5 shrink-0" />
+                <div className="space-y-2 flex-1 min-w-0">
+                  <div className="h-5 w-48 bg-white/20 rounded-lg" />
+                  <div className="h-4 w-36 bg-white/10 rounded-md" />
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    <div className="h-5 w-20 bg-white/5 border border-white/10 rounded-md" />
+                    <div className="h-5 w-24 bg-white/5 border border-white/10 rounded-md" />
+                  </div>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-3 gap-2 sm:gap-6 md:gap-8">
+                <div className="space-y-2">
+                  <div className="h-3 w-16 bg-white/10 rounded" />
+                  <div className="h-8 w-14 bg-fifa-gold/20 rounded-lg" />
+                </div>
+                <div className="space-y-2">
+                  <div className="h-3 w-16 bg-white/10 rounded" />
+                  <div className="h-8 w-16 bg-white/20 rounded-lg" />
+                </div>
+                <div className="space-y-2">
+                  <div className="h-3 w-16 bg-white/10 rounded" />
+                  <div className="h-8 w-14 bg-fifa-red/20 rounded-lg" />
+                </div>
+              </div>
+            </div>
+            
+            <div className="w-full md:w-64 space-y-2">
+              <div className="flex justify-between items-center">
+                <div className="h-3 w-14 bg-white/10 rounded" />
+                <div className="h-3 w-20 bg-white/10 rounded" />
+              </div>
+              <div className="h-3 bg-white/10 rounded-full w-full" />
+            </div>
+          </div>
+        </div>
+
+        {/* Action button / Search Skeletons */}
+        <div className="flex flex-col md:flex-row gap-4 mb-8">
+          <div className="h-14 bg-white/[0.01] border border-white/5 rounded-xl flex-1" />
+          <div className="h-14 bg-white/[0.01] border border-white/5 rounded-xl w-full md:w-72" />
+        </div>
+
+        {/* Stickers Grid Header Skeleton */}
+        <div className="space-y-6">
+          <div className="flex items-center justify-between border-b border-white/5 pb-4">
+            <div className="h-6 w-32 bg-white/15 rounded-lg" />
+            <div className="h-4 w-16 bg-white/10 rounded" />
+          </div>
+          
+          {/* Stickers Grid Skeleton */}
+          <div className="grid grid-cols-3 min-[390px]:grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 gap-3">
+            {Array.from({ length: 16 }).map((_, idx) => (
+              <div 
+                key={idx} 
+                className="aspect-[3/4] rounded-2xl bg-white/[0.01] border border-white/5 p-3 flex flex-col justify-between"
+              >
+                <div className="h-3 w-8 bg-white/10 rounded" />
+                <div className="h-12 w-12 bg-white/10 rounded-xl mx-auto my-2" />
+                <div className="h-3 w-16 bg-white/5 rounded mx-auto" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+
   return (
     <div className="min-h-screen pb-20 selection:bg-fifa-gold selection:text-black w-full overflow-x-hidden">
       <AnimatePresence>
@@ -4459,7 +4662,7 @@ export default function App() {
                 </AnimatePresence>
               </div>
 
-            {!activeAlbum ? (
+            {!isLoading && !activeAlbum ? (
               <div className="text-center py-20">
                 <AlbumIcon className="mx-auto w-16 h-16 text-white/10 mb-4" />
                 <h3 className="text-xl font-bold mb-2">{t('album.no_active_albums')}</h3>
