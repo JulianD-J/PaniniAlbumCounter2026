@@ -7,6 +7,10 @@
       "properties": {
         "userId": { "type": "string", "description": "The owner of the album." },
         "name": { "type": "string", "description": "Name of the album (e.g., 'Mi Álbum')." },
+        "inventory": {
+          "type": "object",
+          "description": "Map of sticker codes to inventory items containing quantity and isConseguida."
+        },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
@@ -57,10 +61,6 @@
     "albums/{albumId}": {
       "schema": "Album",
       "description": "User albums."
-    },
-    "albums/{albumId}/inventory/{stickerCode}": {
-      "schema": "Sticker",
-      "description": "Inventory of stickers in an album."
     },
     "users/{userId}/friends/{friendId}": {
       "schema": { "type": "object", "properties": { "addedAt": { "type": "string", "format": "date-time" } } },

@@ -89,18 +89,11 @@ service cloud.firestore {
     match /albums/{albumId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && incoming().userId == request.auth.uid;
-      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
-
-      // Stickers subcollection
-      match /inventory/{stickerCode} {
-        allow read: if isSignedIn();
-        allow write: if isSignedIn() && (
-          // Owner can write
-          get(/databases/$(database)/documents/albums/$(albumId)).data.userId == request.auth.uid ||
-          // Friend of owner can write (for completing swaps)
-          exists(/databases/$(database)/documents/users/$(get(/databases/$(database)/documents/albums/$(albumId)).data.userId)/friends/$(request.auth.uid))
-        );
-      }
+      allow update: if isSignedIn() && (
+        resource.data.userId == request.auth.uid ||
+        exists(/databases/$(database)/documents/users/$(resource.data.userId)/friends/$(request.auth.uid))
+      );
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
     }
   }
 }

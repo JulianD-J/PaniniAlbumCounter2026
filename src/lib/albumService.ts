@@ -97,16 +97,35 @@ export const albumService = {
   },
 
   async getAlbumInventory(albumId: string) {
-    const path = `albums/${albumId}/inventory`;
+    const docRef = doc(db, 'albums', albumId);
     try {
-      const snapshot = await getDocs(collection(db, path));
+      const docSnap = await getDoc(docRef);
       const inventory: Record<string, any> = {};
-      snapshot.forEach(doc => {
-        inventory[doc.id] = doc.data();
-      });
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        const dbInventory = data.inventory || {};
+        Object.keys(dbInventory).forEach(code => {
+          const item = dbInventory[code] || {};
+          const qty = typeof item.quantity === 'number' ? item.quantity : (item.count || 0);
+          const active = typeof item.isConseguida === 'boolean' ? item.isConseguida : (qty > 0);
+          
+          let statusStr = 'missing';
+          if (active) {
+            statusStr = qty > 1 ? 'repeated' : 'obtained';
+          }
+
+          inventory[code] = {
+            quantity: qty,
+            isConseguida: active,
+            count: qty,
+            status: statusStr,
+            updatedAt: item.updatedAt
+          };
+        });
+      }
       return inventory;
     } catch (e) {
-      handleFirestoreError(e, OperationType.LIST, path);
+      handleFirestoreError(e, OperationType.GET, `albums/${albumId}`);
     }
   },
 
@@ -290,13 +309,16 @@ export const albumService = {
         const myAlbumId = myAlbums[0].id;
         const myInv = await this.getAlbumInventory(myAlbumId);
         
+        const myAlbumRef = doc(db, 'albums', myAlbumId);
+        const myUpdates: Record<string, any> = {
+          updatedAt: serverTimestamp()
+        };
+
         // As Receiver, I GET what they sent in 'give'
         for (const code of give) {
-          batch.set(doc(db, 'albums', myAlbumId, 'inventory', code), {
-            status: 'obtained',
-            count: 1,
-            updatedAt: serverTimestamp()
-          });
+          myUpdates[`inventory.${code}.quantity`] = 1;
+          myUpdates[`inventory.${code}.isConseguida`] = true;
+          myUpdates[`inventory.${code}.updatedAt`] = serverTimestamp();
         }
         
         // As Receiver, I GIVE what was in 'get'
@@ -304,13 +326,14 @@ export const albumService = {
           const current = myInv[code];
           if (current && current.status === 'repeated' && current.count > 0) {
             const nextCount = current.count - 1;
-            const nextStatus = nextCount === 1 ? 'obtained' : 'repeated';
-            batch.set(doc(db, 'albums', myAlbumId, 'inventory', code), {
-              status: nextStatus,
-              count: nextCount,
-              updatedAt: serverTimestamp()
-            });
+            myUpdates[`inventory.${code}.quantity`] = nextCount;
+            myUpdates[`inventory.${code}.isConseguida`] = true;
+            myUpdates[`inventory.${code}.updatedAt`] = serverTimestamp();
           }
+        }
+
+        if (Object.keys(myUpdates).length > 1) {
+          batch.update(myAlbumRef, myUpdates);
         }
       }
 
@@ -320,13 +343,16 @@ export const albumService = {
         const friendAlbumId = friendAlbums[0].id;
         const friendInv = await this.getAlbumInventory(friendAlbumId);
 
+        const friendAlbumRef = doc(db, 'albums', friendAlbumId);
+        const friendUpdates: Record<string, any> = {
+          updatedAt: serverTimestamp()
+        };
+
         // As Sender, they GET what I sent in 'get'
         for (const code of get) {
-          batch.set(doc(db, 'albums', friendAlbumId, 'inventory', code), {
-            status: 'obtained',
-            count: 1,
-            updatedAt: serverTimestamp()
-          });
+          friendUpdates[`inventory.${code}.quantity`] = 1;
+          friendUpdates[`inventory.${code}.isConseguida`] = true;
+          friendUpdates[`inventory.${code}.updatedAt`] = serverTimestamp();
         }
 
         // As Sender, they GIVE what was in 'give'
@@ -334,13 +360,14 @@ export const albumService = {
           const current = friendInv[code];
           if (current && current.status === 'repeated' && current.count > 0) {
             const nextCount = current.count - 1;
-            const nextStatus = nextCount === 1 ? 'obtained' : 'repeated';
-            batch.set(doc(db, 'albums', friendAlbumId, 'inventory', code), {
-              status: nextStatus,
-              count: nextCount,
-              updatedAt: serverTimestamp()
-            });
+            friendUpdates[`inventory.${code}.quantity`] = nextCount;
+            friendUpdates[`inventory.${code}.isConseguida`] = true;
+            friendUpdates[`inventory.${code}.updatedAt`] = serverTimestamp();
           }
+        }
+
+        if (Object.keys(friendUpdates).length > 1) {
+          batch.update(friendAlbumRef, friendUpdates);
         }
       }
 
@@ -396,28 +423,53 @@ export const albumService = {
   },
 
   subscribeToInventory(albumId: string, callback: (data: Record<string, any>) => void) {
-    const path = `albums/${albumId}/inventory`;
-    return onSnapshot(collection(db, path), (snapshot) => {
+    const docRef = doc(db, 'albums', albumId);
+    return onSnapshot(docRef, (docSnap) => {
       const inventory: Record<string, any> = {};
-      snapshot.forEach(doc => {
-        inventory[doc.id] = doc.data();
-      });
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        const dbInventory = data.inventory || {};
+        Object.keys(dbInventory).forEach(code => {
+          const item = dbInventory[code] || {};
+          const qty = typeof item.quantity === 'number' ? item.quantity : (item.count || 0);
+          const active = typeof item.isConseguida === 'boolean' ? item.isConseguida : (qty > 0);
+          
+          let statusStr = 'missing';
+          if (active) {
+            statusStr = qty > 1 ? 'repeated' : 'obtained';
+          }
+
+          inventory[code] = {
+            quantity: qty,
+            isConseguida: active,
+            count: qty,
+            status: statusStr,
+            updatedAt: item.updatedAt
+          };
+        });
+      }
       callback(inventory);
     }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, path);
+      handleFirestoreError(error, OperationType.GET, `albums/${albumId}`);
     });
   },
 
   async updateSticker(albumId: string, stickerCode: string, status: string, count: number) {
-    const path = `albums/${albumId}/inventory/${stickerCode}`;
+    const docRef = doc(db, 'albums', albumId);
     try {
-      await setDoc(doc(db, 'albums', albumId, 'inventory', stickerCode), {
-        status,
-        count,
+      const isConseguida = status !== 'missing' && count > 0;
+      const quantity = isConseguida ? count : 0;
+
+      const updateData: Record<string, any> = {
+        [`inventory.${stickerCode}.quantity`]: quantity,
+        [`inventory.${stickerCode}.isConseguida`]: isConseguida,
+        [`inventory.${stickerCode}.updatedAt`]: serverTimestamp(),
         updatedAt: serverTimestamp()
-      });
+      };
+
+      await updateDoc(docRef, updateData);
     } catch (e) {
-      handleFirestoreError(e, OperationType.WRITE, path);
+      handleFirestoreError(e, OperationType.UPDATE, `albums/${albumId}`);
     }
   },
 
@@ -478,14 +530,16 @@ export const albumService = {
           googleLoginEnabled: data.googleLoginEnabled !== false,
           passwordChangeEnabled: data.passwordChangeEnabled !== false,
           announcementEnabled: !!data.announcementEnabled,
-          announcementText: data.announcementText || ""
+          announcementText: data.announcementText || "",
+          maintenanceModeEnabled: !!data.maintenanceModeEnabled
         };
       }
       return {
         googleLoginEnabled: true,
         passwordChangeEnabled: true,
         announcementEnabled: false,
-        announcementText: ""
+        announcementText: "",
+        maintenanceModeEnabled: false
       };
     } catch (e) {
       console.error("Error fetching global settings:", e);
@@ -493,7 +547,8 @@ export const albumService = {
         googleLoginEnabled: true,
         passwordChangeEnabled: true,
         announcementEnabled: false,
-        announcementText: ""
+        announcementText: "",
+        maintenanceModeEnabled: false
       };
     }
   },
@@ -503,6 +558,7 @@ export const albumService = {
     passwordChangeEnabled?: boolean;
     announcementEnabled?: boolean;
     announcementText?: string;
+    maintenanceModeEnabled?: boolean;
   }) {
     try {
       await setDoc(doc(db, 'settings', 'global'), {
@@ -516,48 +572,56 @@ export const albumService = {
 
   async transferSticker(fromAlbumId: string, toAlbumId: string, stickerCode: string) {
     try {
-      const fromRef = doc(db, 'albums', fromAlbumId, 'inventory', stickerCode);
-      const toRef = doc(db, 'albums', toAlbumId, 'inventory', stickerCode);
+      const fromAlbumRef = doc(db, 'albums', fromAlbumId);
+      const toAlbumRef = doc(db, 'albums', toAlbumId);
 
-      const fromSnap = await getDoc(fromRef);
-      const toSnap = await getDoc(toRef);
+      const fromAlbumSnap = await getDoc(fromAlbumRef);
+      const toAlbumSnap = await getDoc(toAlbumRef);
 
-      if (!fromSnap.exists() || fromSnap.data().count <= 1) {
+      if (!fromAlbumSnap.exists()) {
+        throw new Error("Source album does not exist");
+      }
+      if (!toAlbumSnap.exists()) {
+        throw new Error("Target album does not exist");
+      }
+
+      const fromData = fromAlbumSnap.data();
+      const toData = toAlbumSnap.data();
+
+      const fromInv = fromData.inventory || {};
+      const toInv = toData.inventory || {};
+
+      const currentFrom = fromInv[stickerCode];
+      const fromQty = currentFrom?.quantity || 0;
+      const fromActive = currentFrom?.isConseguida || false;
+
+      if (!fromActive || fromQty <= 1) {
         throw new Error("No repeated sticker to transfer");
       }
 
       const batch = writeBatch(db);
-      
-      // Update source
-      const currentFrom = fromSnap.data();
-      if (currentFrom.count === 1) {
-        // Should not happen based on check above, but for safety:
-        batch.update(fromRef, { status: 'missing', count: 0, updatedAt: serverTimestamp() });
-      } else {
-        batch.update(fromRef, { 
-          count: increment(-1), 
-          updatedAt: serverTimestamp(),
-          // If they have 2 and give 1, they still have 1 but it's no longer repeated
-          status: currentFrom.count === 2 ? 'obtained' : 'repeated'
-        });
-      }
 
-      // Update target
-      if (!toSnap.exists()) {
-        batch.set(toRef, {
-          code: stickerCode,
-          status: 'obtained',
-          count: 1,
-          updatedAt: serverTimestamp()
-        });
-      } else {
-        const currentTo = toSnap.data();
-        batch.update(toRef, {
-          count: increment(1),
-          status: 'repeated', // If they had it (obtained or repeated), it's now repeated
-          updatedAt: serverTimestamp()
-        });
-      }
+      // Update source (decrement)
+      const nextFromQty = fromQty - 1;
+      const nextFromActive = nextFromQty > 0;
+      batch.update(fromAlbumRef, {
+        [`inventory.${stickerCode}.quantity`]: nextFromQty,
+        [`inventory.${stickerCode}.isConseguida`]: nextFromActive,
+        [`inventory.${stickerCode}.updatedAt`]: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+
+      // Update target (increment)
+      const currentTo = toInv[stickerCode];
+      const toQty = currentTo?.quantity || 0;
+      const nextToQty = toQty + 1;
+      
+      batch.update(toAlbumRef, {
+        [`inventory.${stickerCode}.quantity`]: nextToQty,
+        [`inventory.${stickerCode}.isConseguida`]: true,
+        [`inventory.${stickerCode}.updatedAt`]: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
 
       await batch.commit();
     } catch (e) {
@@ -610,6 +674,39 @@ export const albumService = {
         averageCompletionPercent: 0,
         topCollector: null
       };
+    }
+  },
+
+  async getAllUsers() {
+    try {
+      const snap = await getDocs(collection(db, 'users'));
+      return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    } catch (e) {
+      console.error("Error getting all users", e);
+      return [];
+    }
+  },
+
+  async toggleUserPremium(userId: string, isPremium: boolean) {
+    try {
+      await updateDoc(doc(db, 'users', userId), {
+        isPremium,
+        updatedAt: serverTimestamp()
+      });
+      return true;
+    } catch (e) {
+      console.error("Error toggling premium status", e);
+      return false;
+    }
+  },
+
+  async getTotalAlbumsCount() {
+    try {
+      const snap = await getDocs(collection(db, 'albums'));
+      return snap.size;
+    } catch (e) {
+      console.error("Error getting exact albums count", e);
+      return 0;
     }
   }
 };

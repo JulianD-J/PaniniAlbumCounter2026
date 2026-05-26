@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
   Trophy, Sparkles, Medal, Lock, Shield, Award, Zap, 
@@ -50,12 +50,89 @@ export const RPGProgressWidget: React.FC<RPGProgressWidgetProps> = ({
   const percentage = Math.min(100, Math.round((obtained / total) * 100)) || 0;
   const unlockedCount = useMemo(() => achievements.filter(a => a.unlocked).length, [achievements]);
 
+  // Daily XP states
+  const [dailyXp, setDailyXp] = useState(0);
+  const [bonusLevels, setBonusLevels] = useState(0);
+  const [notification, setNotification] = useState<{ text: string; bg: string } | null>(null);
+
+  useEffect(() => {
+    const storageKeyXp = "colecollect_daily_xp_v1";
+    const storageKeyDate = "colecollect_last_login_date_v1";
+    const storageKeyBonus = "colecollect_bonus_levels_v1";
+
+    const savedXp = parseInt(localStorage.getItem(storageKeyXp) || "0", 10);
+    const savedBonus = parseInt(localStorage.getItem(storageKeyBonus) || "0", 10);
+    const savedDate = localStorage.getItem(storageKeyDate) || "";
+
+    setDailyXp(savedXp);
+    setBonusLevels(savedBonus);
+
+    // Track login on subsequent days
+    const todayDate = new Date().toLocaleDateString();
+
+    if (savedDate !== todayDate) {
+      const xpReward = 20;
+      const nextXpTotal = savedXp + xpReward;
+      let levelUp = false;
+      let newBonus = savedBonus;
+      let finalXp = nextXpTotal;
+
+      if (nextXpTotal >= 100) {
+        levelUp = true;
+        newBonus = savedBonus + 1;
+        finalXp = nextXpTotal % 100;
+      }
+
+      localStorage.setItem(storageKeyXp, finalXp.toString());
+      localStorage.setItem(storageKeyBonus, newBonus.toString());
+      localStorage.setItem(storageKeyDate, todayDate);
+
+      setDailyXp(finalXp);
+      setBonusLevels(newBonus);
+
+      // Show beautiful daily check-in celebration toast
+      setTimeout(() => {
+        if (levelUp) {
+          setNotification({
+            text: isEs 
+              ? `¡SUBIDA DE NIVEL! +${xpReward} XP Recompensa Diaria (Nivel Extra +1)` 
+              : `LEVEL UP! +${xpReward} XP Daily Bonus (Extra Level +1)`,
+            bg: "from-amber-600 via-yellow-500 to-amber-500 text-black border-yellow-300/40"
+          });
+        } else {
+          setNotification({
+            text: isEs 
+              ? `¡Recompensa Diaria! +${xpReward} XP por abrir la app hoy (${finalXp}/100 XP)` 
+              : `Daily Login Bonus! +${xpReward} XP claimed successfully (${finalXp}/100 XP)`,
+            bg: "from-fifa-gold/20 via-[#1e1402] to-black text-fifa-gold border-fifa-gold/30"
+          });
+        }
+
+        // Auto-dismiss in 6 seconds
+        setTimeout(() => {
+          setNotification(null);
+        }, 6000);
+      }, 800);
+    }
+  }, [isEs]);
+
   // RPG Rank Calculation
   const rankInfo = useMemo(() => {
+    const baseLevel = (() => {
+      if (percentage === 100) return 99;
+      if (percentage >= 90) return 80;
+      if (percentage >= 70) return 65;
+      if (percentage >= 45) return 42;
+      if (percentage >= 20) return 18;
+      return 1;
+    })();
+
+    const finalLevel = baseLevel + bonusLevels;
+
     if (percentage === 100) {
       return {
         title: isEs ? "Héroe Legendario" : "Legendary Hero",
-        level: 99,
+        level: finalLevel,
         color: "from-yellow-400 via-amber-500 to-red-500 text-yellow-400",
         bgGlow: "shadow-yellow-500/20 border-yellow-500/40",
         motto: isEs ? "¡Has alcanzado la gloria eterna del coleccionista!" : "You have attained physical sticker immortality!"
@@ -64,7 +141,7 @@ export const RPGProgressWidget: React.FC<RPGProgressWidgetProps> = ({
     if (percentage >= 90) {
       return {
         title: isEs ? "Mítico del Álbum" : "Album Mythical",
-        level: 80,
+        level: finalLevel,
         color: "from-purple-400 via-pink-500 to-amber-500 text-purple-300",
         bgGlow: "shadow-purple-500/20 border-purple-500/30",
         motto: isEs ? "La meta brilla en el horizonte celestial" : "The finish line shines on the celestial horizon"
@@ -73,7 +150,7 @@ export const RPGProgressWidget: React.FC<RPGProgressWidgetProps> = ({
     if (percentage >= 70) {
       return {
         title: isEs ? "Coleccionista Campeón" : "Champion Collector",
-        level: 65,
+        level: finalLevel,
         color: "from-emerald-400 to-teal-500 text-emerald-300",
         bgGlow: "shadow-emerald-500/10 border-emerald-500/30",
         motto: isEs ? "Tus rivales tiemblan ante tu impecable vitrina" : "Your rivals tremble in front of your showcase"
@@ -82,7 +159,7 @@ export const RPGProgressWidget: React.FC<RPGProgressWidgetProps> = ({
     if (percentage >= 45) {
       return {
         title: isEs ? "Veterano del Intercambio" : "Swap Veteran",
-        level: 42,
+        level: finalLevel,
         color: "from-blue-400 to-indigo-500 text-blue-300",
         bgGlow: "shadow-blue-500/10 border-blue-500/20",
         motto: isEs ? "Las repetidas son tu mejor arma de negociación" : "Repeats are your ultimate currency in negotiations"
@@ -91,7 +168,7 @@ export const RPGProgressWidget: React.FC<RPGProgressWidgetProps> = ({
     if (percentage >= 20) {
       return {
         title: isEs ? "Cazador de Estampas" : "Sticker Huntsman",
-        level: 18,
+        level: finalLevel,
         color: "from-cyan-400 to-blue-500 text-cyan-300",
         bgGlow: "shadow-cyan-500/10 border-cyan-500/20",
         motto: isEs ? "Expandiendo tus fronteras sobre por sobre" : "Expanding your borders envelope by envelope"
@@ -99,12 +176,12 @@ export const RPGProgressWidget: React.FC<RPGProgressWidgetProps> = ({
     }
     return {
       title: isEs ? "Recluta del Álbum" : "Album Recruit",
-      level: 1,
+      level: finalLevel,
       color: "from-gray-400 to-slate-500 text-gray-300",
       bgGlow: "shadow-gray-500/5 border-white/5",
       motto: isEs ? "Comienza tu épico camino hacia la copa" : "Begin your epic journey towards the golden cup"
     };
-  }, [percentage, isEs]);
+  }, [percentage, isEs, bonusLevels]);
 
   // Split standard RPG bar into chunks/segments to look high tech and gamer-like
   const segments = Array.from({ length: 10 });
@@ -122,26 +199,70 @@ export const RPGProgressWidget: React.FC<RPGProgressWidgetProps> = ({
         <Trophy size={180} />
       </div>
 
+      {/* Floating alert for daily check-in */}
+      <AnimatePresence>
+        {notification && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            className={`absolute top-4 left-6 right-6 z-50 p-3.5 rounded-2xl border bg-gradient-to-br ${notification.bg} shadow-2xl flex items-center justify-between gap-3`}
+          >
+            <div className="flex items-center gap-2">
+              <Sparkles className="text-fifa-gold animate-bounce shrink-0" size={16} />
+              <p className="text-xs font-bold leading-tight font-sans">
+                {notification.text}
+              </p>
+            </div>
+            <button 
+              onClick={() => setNotification(null)}
+              className="text-gray-400 hover:text-white text-xs font-black px-2 py-1 rounded-lg hover:bg-white/5 font-mono"
+            >
+              OK
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Main Content Layout */}
       <div className="flex flex-col gap-6 relative z-10">
         
         {/* Header Section: Level & Rank Label */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            {/* Highly Polished RPG Level Shield */}
-            <div className="relative">
-              <motion.div 
-                animate={{ rotate: 360 }}
-                transition={{ repeat: Infinity, duration: 25, ease: "linear" }}
-                className="absolute inset-[-4px] bg-gradient-to-r from-fifa-gold via-yellow-500/20 to-fifa-gold rounded-full opacity-60 blur-xs"
-              />
-              <div className="relative w-14 h-14 bg-[#1b1b22] border-2 border-fifa-gold/60 rounded-full flex flex-col items-center justify-center shadow-lg">
-                <Shield className="absolute text-fifa-gold/10 w-11 h-11" />
-                <span className="text-[10px] uppercase font-mono font-black text-fifa-gold tracking-widest leading-none mt-1">LVL</span>
-                <span className="text-xl font-display font-black text-white leading-none mt-0.5">{rankInfo.level}</span>
+            {/* Highly Polished RPG Level Shield & Micro Progress Bar */}
+            <div className="flex flex-col items-center shrink-0">
+              <div className="relative">
+                <motion.div 
+                  animate={{ rotate: 360 }}
+                  transition={{ repeat: Infinity, duration: 25, ease: "linear" }}
+                  className="absolute inset-[-4px] bg-gradient-to-r from-fifa-gold via-yellow-500/20 to-fifa-gold rounded-full opacity-60 blur-xs"
+                />
+                <div className="relative w-14 h-14 bg-[#1b1b22] border-2 border-fifa-gold/60 rounded-full flex flex-col items-center justify-center shadow-lg">
+                  <Shield className="absolute text-fifa-gold/10 w-11 h-11" />
+                  <span className="text-[10px] uppercase font-mono font-black text-fifa-gold tracking-widest leading-none mt-1">LVL</span>
+                  <span className="text-xl font-display font-black text-white leading-none mt-0.5">{rankInfo.level}</span>
+                </div>
+                <div className="absolute -bottom-1 -right-1 bg-gradient-to-r from-fifa-gold to-yellow-500 text-black rounded-full p-1 shadow-md">
+                  <Zap size={10} className="fill-current animate-pulse" />
+                </div>
               </div>
-              <div className="absolute -bottom-1 -right-1 bg-gradient-to-r from-fifa-gold to-yellow-500 text-black rounded-full p-1 shadow-md">
-                <Zap size={10} className="fill-current animate-pulse" />
+
+              {/* Small XP bar underneath the level counter shield */}
+              <div 
+                className="w-14 mt-2 flex flex-col items-center gap-0.5 group/xp cursor-pointer relative"
+                title={isEs ? `XP por inicio de sesión hoy: ${dailyXp}/100` : `Daily Login XP: ${dailyXp}/100`}
+              >
+                <div className="h-1 w-full bg-black/60 border border-white/5 rounded-full overflow-hidden p-[0.5px]">
+                  <motion.div 
+                    initial={{ width: 0 }}
+                    animate={{ width: `${dailyXp}%` }}
+                    className="bg-gradient-to-r from-fifa-gold to-yellow-400 h-full rounded-full shrink-0"
+                  />
+                </div>
+                <span className="text-[8px] font-mono font-black text-fifa-gold tracking-wider leading-none">
+                  {dailyXp} XP
+                </span>
               </div>
             </div>
 

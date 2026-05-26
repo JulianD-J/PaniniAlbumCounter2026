@@ -3049,13 +3049,23 @@ export default function App() {
     googleLoginEnabled: true, 
     passwordChangeEnabled: true,
     announcementEnabled: false,
-    announcementText: ""
+    announcementText: "",
+    maintenanceModeEnabled: false
   });
   const [showAdminDashboard, setShowAdminDashboard] = useState(false);
   const [adminAnnouncementMessage, setAdminAnnouncementMessage] = useState("");
   const [saveAnnounceLoading, setSaveAnnounceLoading] = useState(false);
   const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
   const [announcementHasBeenShown, setAnnouncementHasBeenShown] = useState(false);
+  const [adminActiveTab, setAdminActiveTab] = useState<'settings' | 'users' | 'stats'>('settings');
+  const [adminUsers, setAdminUsers] = useState<any[]>([]);
+  const [adminStats, setAdminStats] = useState({
+    totalUsers: 0,
+    totalAlbums: 0,
+    totalPremium: 0
+  });
+  const [adminSearch, setAdminSearch] = useState("");
+  const [adminMetricsLoading, setAdminMetricsLoading] = useState(false);
   const albumCC = useMemo(() => {
     const count = activeAlbum?.cocaColaCount !== undefined ? activeAlbum.cocaColaCount : 14;
     if (!count || count === 0) return [];
@@ -3100,6 +3110,46 @@ export default function App() {
     };
     fetchSettings();
   }, []);
+
+  useEffect(() => {
+    if (showAdminDashboard && isAdmin) {
+      loadAdminData();
+    }
+  }, [showAdminDashboard, isAdmin]);
+
+  const loadAdminData = async () => {
+    setAdminMetricsLoading(true);
+    try {
+      const usersList = await albumService.getAllUsers();
+      const totalAlbums = await albumService.getTotalAlbumsCount();
+      const totalPremiumCount = usersList.filter((u: any) => u.isPremium).length;
+      
+      setAdminStats({
+        totalUsers: usersList.length,
+        totalAlbums: totalAlbums,
+        totalPremium: totalPremiumCount
+      });
+      setAdminUsers(usersList);
+    } catch (e) {
+      console.error("Error loading admin stats", e);
+    } finally {
+      setAdminMetricsLoading(false);
+    }
+  };
+
+  const handleToggleUserPremium = async (targetUserId: string, currentPremiumValue: boolean) => {
+    const nextPremium = !currentPremiumValue;
+    const success = await albumService.toggleUserPremium(targetUserId, nextPremium);
+    if (success) {
+      setAdminUsers(prev => prev.map(u => u.id === targetUserId ? { ...u, isPremium: nextPremium } : u));
+      setAdminStats(prev => ({
+        ...prev,
+        totalPremium: prev.totalPremium + (nextPremium ? 1 : -1)
+      }));
+    } else {
+      alert(isEs ? "Error al actualizar el estado premium" : "Error updating premium status");
+    }
+  };
 
   useEffect(() => {
     if (globalSettings.announcementEnabled && globalSettings.announcementText && !announcementHasBeenShown) {
@@ -4101,6 +4151,46 @@ export default function App() {
     </div>
   );
 
+  if (globalSettings.maintenanceModeEnabled && !isAdmin) {
+    return (
+      <div className="min-h-screen bg-[#070708] text-white flex flex-col items-center justify-center p-6 selection:bg-fifa-gold selection:text-black">
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-96 h-96 bg-fifa-gold/10 blur-[100px] rounded-full" />
+        </div>
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.5 }}
+          className="w-full max-w-md bg-[#0E0E10] border border-white/5 shadow-2xl rounded-[2rem] p-8 text-center relative overflow-hidden"
+        >
+          <div className="w-16 h-16 bg-fifa-gold/10 rounded-2xl flex items-center justify-center border border-fifa-gold/30 mx-auto mb-6">
+            <AlertTriangle size={32} className="text-fifa-gold animate-pulse shrink-0" />
+          </div>
+          <h1 className="text-2xl font-display font-black text-white tracking-tight mb-3">
+            {isEs ? 'Mantenimiento en Progreso' : 'Maintenance in Progress'}
+          </h1>
+          <p className="text-sm text-gray-400 leading-relaxed mb-6">
+            {isEs 
+              ? 'Estamos optimizando los servidores y cargando nuevas láminas para el mundial. Volveremos muy pronto. ¡Gracias por tu paciencia!' 
+              : 'Our technical team is optimizing systems and preparing new collectible content. We will be back online shortly.'}
+          </p>
+          <div className="p-4 bg-white/5 border border-white/5 rounded-xl text-left">
+            <span className="text-[10px] font-mono uppercase tracking-widest text-fifa-gold block mb-1">
+              {isEs ? 'Estado del Sistema' : 'System Status'}
+            </span>
+            <span className="text-xs text-gray-300 font-medium font-sans">
+              {isEs ? 'Sincronización de base de datos activa...' : 'Database synchronization live...'}
+            </span>
+          </div>
+          <div className="mt-8 pt-6 border-t border-white/5 flex items-center justify-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-fifa-gold animate-ping" />
+            <span className="text-[10px] text-gray-500 font-bold uppercase tracking-[0.15em] font-mono">ColeCollect Hub</span>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen pb-20 selection:bg-fifa-gold selection:text-black w-full overflow-x-hidden">
       <AnimatePresence>
@@ -4162,136 +4252,355 @@ export default function App() {
               animate={{ scale: 1, y: 0, opacity: 1 }}
               exit={{ scale: 0.9, y: 40, opacity: 0 }}
               transition={{ type: "spring", damping: 25, stiffness: 300 }}
-              className="relative w-full max-w-lg bg-[#0E0E10] border border-fifa-gold/20 rounded-[2.5rem] p-8 shadow-[0_0_100px_rgba(212,175,55,0.1)] overflow-hidden"
+              className="relative w-full max-w-2xl bg-[#0E0E10] border border-fifa-gold/20 rounded-[2.5rem] p-6 md:p-8 shadow-[0_0_120px_rgba(212,175,55,0.12)] overflow-hidden flex flex-col max-h-[90vh]"
             >
-              {/* Background Accent */}
-              <div className="absolute top-0 right-0 w-32 h-32 bg-fifa-gold/10 blur-[60px] rounded-full -mr-16 -mt-16" />
+              {/* Background Glow Accent */}
+              <div className="absolute top-0 right-0 w-48 h-48 bg-fifa-gold/10 blur-[80px] rounded-full -mr-20 -mt-20 pointer-events-none" />
               
-              <div className="flex items-center justify-between mb-10">
+              {/* Console Header */}
+              <div className="flex items-center justify-between mb-6 shrink-0">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-fifa-gold/10 rounded-xl flex items-center justify-center border border-fifa-gold/30">
-                    <Settings className="text-fifa-gold" size={20} />
+                  <div className="w-11 h-11 bg-fifa-gold/10 rounded-2xl flex items-center justify-center border border-fifa-gold/30">
+                    <Settings className="text-fifa-gold" size={22} />
                   </div>
                   <div>
-                    <h2 className="text-xl font-display font-bold text-white tracking-tight">Console Admin</h2>
-                    <p className="text-[10px] text-fifa-gold font-mono tracking-[0.2em] uppercase opacity-60">Control Panel v2.0</p>
+                    <h2 className="text-xl font-display font-black text-white tracking-tight">Console Admin</h2>
+                    <p className="text-[10px] text-fifa-gold font-mono tracking-[0.2em] uppercase opacity-75">Control Panel v3.5 • ColeCollect</p>
                   </div>
                 </div>
                 <button 
                   onClick={() => setShowAdminDashboard(false)} 
-                  className="p-3 hover:bg-white/5 rounded-2xl transition-all border border-transparent hover:border-white/10 active:scale-95"
+                  className="p-2.5 hover:bg-white/5 rounded-2xl transition-all border border-transparent hover:border-white/10 active:scale-95"
                 >
-                  <X size={20} className="text-gray-400" />
+                  <X size={18} className="text-gray-400" />
                 </button>
               </div>
 
-              <div className="space-y-4">
-                <div className="group p-6 bg-white/5 rounded-[2rem] border border-white/5 hover:border-fifa-gold/20 transition-all">
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-1">
-                      <h3 className="font-bold text-white group-hover:text-fifa-gold transition-colors">Google Login</h3>
-                      <p className="text-xs text-gray-500 leading-relaxed max-w-[200px]">Allow users to authenticate via Google Infrastructure.</p>
-                    </div>
-                    <button 
-                      onClick={() => {
-                        const next = !globalSettings.googleLoginEnabled;
-                        setGlobalSettings(s => ({ ...s, googleLoginEnabled: next }));
-                        albumService.updateGlobalSettings({ googleLoginEnabled: next });
-                      }}
-                      className={`w-16 h-9 rounded-full relative transition-all duration-300 shadow-inner ${globalSettings.googleLoginEnabled ? 'bg-fifa-gold' : 'bg-gray-800'}`}
-                    >
-                      <motion.div 
-                        animate={{ x: globalSettings.googleLoginEnabled ? 28 : 4 }}
-                        className="absolute top-1.5 w-6 h-6 bg-white rounded-full shadow-lg" 
-                      />
-                    </button>
-                  </div>
-                </div>
-
-                <div className="group p-6 bg-white/5 rounded-[2rem] border border-white/5 hover:border-fifa-gold/20 transition-all">
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-1">
-                      <h3 className="font-bold text-white group-hover:text-fifa-gold transition-colors">Password Auth</h3>
-                      <p className="text-xs text-gray-500 leading-relaxed max-w-[200px]">Enable self-service password update workflows.</p>
-                    </div>
-                    <button 
-                      onClick={() => {
-                        const next = !globalSettings.passwordChangeEnabled;
-                        setGlobalSettings(s => ({ ...s, passwordChangeEnabled: next }));
-                        albumService.updateGlobalSettings({ passwordChangeEnabled: next });
-                      }}
-                      className={`w-16 h-9 rounded-full relative transition-all duration-300 shadow-inner ${globalSettings.passwordChangeEnabled ? 'bg-fifa-gold' : 'bg-gray-800'}`}
-                    >
-                      <motion.div 
-                        animate={{ x: globalSettings.passwordChangeEnabled ? 28 : 4 }}
-                        className="absolute top-1.5 w-6 h-6 bg-white rounded-full shadow-lg" 
-                      />
-                    </button>
-                  </div>
-                </div>
-
-                <div className="group p-6 bg-white/5 rounded-[2rem] border border-white/5 hover:border-fifa-gold/20 transition-all space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-1">
-                      <h3 className="font-bold text-white group-hover:text-fifa-gold transition-colors">
-                        {isEs ? 'Mensaje de Apertura' : 'Opening Announcement'}
-                      </h3>
-                      <p className="text-xs text-gray-500 leading-relaxed max-w-[200px]">
-                        {isEs ? 'Muestra un aviso personalizado al abrir la aplicación.' : 'Display a custom greeting or notification on start.'}
-                      </p>
-                    </div>
-                    <button 
-                      onClick={() => {
-                        const next = !globalSettings.announcementEnabled;
-                        setGlobalSettings(s => ({ ...s, announcementEnabled: next }));
-                        albumService.updateGlobalSettings({ announcementEnabled: next });
-                      }}
-                      className={`w-16 h-9 rounded-full relative transition-all duration-300 shadow-inner ${globalSettings.announcementEnabled ? 'bg-fifa-gold' : 'bg-gray-800'}`}
-                    >
-                      <motion.div 
-                        animate={{ x: globalSettings.announcementEnabled ? 28 : 4 }}
-                        className="absolute top-1.5 w-6 h-6 bg-white rounded-full shadow-lg" 
-                      />
-                    </button>
-                  </div>
-
-                  <div className="space-y-2 pt-2 border-t border-white/5">
-                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">
-                      {isEs ? 'Personalizar Mensaje' : 'Personalize Message'}
-                    </label>
-                    <textarea
-                      value={adminAnnouncementMessage}
-                      onChange={(e) => setAdminAnnouncementMessage(e.target.value)}
-                      placeholder={isEs ? 'Escribe el aviso para tus usuarios aquí...' : 'Write the announcement for your users here...'}
-                      className="w-full h-24 bg-black/60 border border-white/10 rounded-2xl p-3 text-xs text-white focus:outline-none focus:border-fifa-gold/50 transition-colors resize-none"
-                    />
-                    <div className="flex justify-end">
-                      <button
-                        onClick={async () => {
-                          try {
-                            setSaveAnnounceLoading(true);
-                            await albumService.updateGlobalSettings({ announcementText: adminAnnouncementMessage });
-                            setGlobalSettings(s => ({ ...s, announcementText: adminAnnouncementMessage }));
-                            alert(isEs ? '¡Mensaje guardado correctamente!' : 'Message saved successfully!');
-                          } catch (err) {
-                            console.error(err);
-                          } finally {
-                            setSaveAnnounceLoading(false);
-                          }
-                        }}
-                        disabled={saveAnnounceLoading}
-                        className="px-4 py-2 bg-fifa-gold text-black text-xs font-bold rounded-xl hover:bg-yellow-500 transition-all active:scale-95 disabled:opacity-50"
-                      >
-                        {saveAnnounceLoading ? (isEs ? 'Guardando...' : 'Saving...') : (isEs ? 'Guardar Mensaje' : 'Save Message')}
-                      </button>
-                    </div>
-                  </div>
-                </div>
+              {/* Sub-Tab Navigation Bar */}
+              <div className="flex gap-1.5 p-1 bg-white/5 rounded-2xl border border-white/5 mb-6 shrink-0">
+                <button
+                  onClick={() => setAdminActiveTab('settings')}
+                  className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 ${adminActiveTab === 'settings' ? 'bg-fifa-gold text-black shadow-lg shadow-fifa-gold/15' : 'text-gray-400 hover:text-white'}`}
+                >
+                  <Settings size={14} />
+                  <span>{isEs ? 'Ajustes' : 'Settings'}</span>
+                </button>
+                <button
+                  onClick={() => setAdminActiveTab('users')}
+                  className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 ${adminActiveTab === 'users' ? 'bg-fifa-gold text-black shadow-lg shadow-fifa-gold/15' : 'text-gray-400 hover:text-white'}`}
+                >
+                  <Users size={14} />
+                  <span>{isEs ? 'Coleccionistas' : 'Collectors'}</span>
+                </button>
+                <button
+                  onClick={() => setAdminActiveTab('stats')}
+                  className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 ${adminActiveTab === 'stats' ? 'bg-fifa-gold text-black shadow-lg shadow-fifa-gold/15' : 'text-gray-400 hover:text-white'}`}
+                >
+                  <Activity size={14} />
+                  <span>{isEs ? 'Analíticas' : 'Stats'}</span>
+                </button>
               </div>
 
-              <div className="mt-8 pt-6 border-t border-white/5 flex items-center justify-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                <span className="text-[10px] text-gray-600 font-bold uppercase tracking-[0.15em]">Live System Synced</span>
+              {/* Console Scrollable Body Container */}
+              <div className="flex-1 overflow-y-auto space-y-5 pr-1 font-sans">
+                {/* 1. SETTINGS TAB */}
+                {adminActiveTab === 'settings' && (
+                  <div className="space-y-4">
+                    {/* Google Login Override Toggle */}
+                    <div className="group p-5 bg-white/[0.02] rounded-[1.8rem] border border-white/5 hover:border-fifa-gold/20 transition-all">
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-1">
+                          <h3 className="font-bold text-white group-hover:text-fifa-gold transition-colors text-sm">Google Infrastructure</h3>
+                          <p className="text-xs text-gray-500 leading-relaxed max-w-[320px]">
+                            {isEs ? 'Permite el login seguro con credenciales de Google.' : 'Allow user authorization over official Google federated sign-in.'}
+                          </p>
+                        </div>
+                        <button 
+                          onClick={() => {
+                            const next = !globalSettings.googleLoginEnabled;
+                            setGlobalSettings(s => ({ ...s, googleLoginEnabled: next }));
+                            albumService.updateGlobalSettings({ googleLoginEnabled: next });
+                          }}
+                          className={`w-14 h-8 rounded-full relative transition-all duration-300 shadow-inner ${globalSettings.googleLoginEnabled ? 'bg-fifa-gold' : 'bg-gray-800'}`}
+                        >
+                          <motion.div 
+                            animate={{ x: globalSettings.googleLoginEnabled ? 26 : 4 }}
+                            className="absolute top-1 w-6 h-6 bg-white rounded-full shadow-lg" 
+                          />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Password Authentication Toggle */}
+                    <div className="group p-5 bg-white/[0.02] rounded-[1.8rem] border border-white/5 hover:border-fifa-gold/20 transition-all">
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-1">
+                          <h3 className="font-bold text-white group-hover:text-fifa-gold transition-colors text-sm">{isEs ? 'Cambio de Contraseñas' : 'Password Recovery'}</h3>
+                          <p className="text-xs text-gray-500 leading-relaxed max-w-[320px]">
+                            {isEs ? 'Activa el flujo de cambio y recuperación autónomo de contraseñas.' : 'Enable independent passwords changes and recovery flows.'}
+                          </p>
+                        </div>
+                        <button 
+                          onClick={() => {
+                            const next = !globalSettings.passwordChangeEnabled;
+                            setGlobalSettings(s => ({ ...s, passwordChangeEnabled: next }));
+                            albumService.updateGlobalSettings({ passwordChangeEnabled: next });
+                          }}
+                          className={`w-14 h-8 rounded-full relative transition-all duration-300 shadow-inner ${globalSettings.passwordChangeEnabled ? 'bg-fifa-gold' : 'bg-gray-800'}`}
+                        >
+                          <motion.div 
+                            animate={{ x: globalSettings.passwordChangeEnabled ? 26 : 4 }}
+                            className="absolute top-1 w-6 h-6 bg-white rounded-full shadow-lg" 
+                          />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* SERVER MAINTENANCE DEPLOYMENT MODE SWITCH */}
+                    <div className="group p-5 bg-white/[0.02]/80 rounded-[1.8rem] border border-white/5 hover:border-fifa-red/30 transition-all">
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-bold text-white group-hover:text-fifa-red transition-colors text-sm">
+                              {isEs ? 'Modo Mantenimiento Global' : 'Global Maintenance Mode'}
+                            </h3>
+                            <span className={`text-[8px] px-1.5 py-0.5 rounded font-mono uppercase font-black ${globalSettings.maintenanceModeEnabled ? 'bg-fifa-red/10 border border-fifa-red/30 text-fifa-red' : 'bg-white/5 text-gray-600'}`}>
+                              {globalSettings.maintenanceModeEnabled ? 'ON' : 'OFF'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-500 leading-relaxed max-w-[320px]">
+                            {isEs ? 'Bloquea el acceso para los usuarios comunes mientras optimizas bases de datos.' : 'Restricts active read/write query operations for regular collectors.'}
+                          </p>
+                        </div>
+                        <button 
+                          onClick={() => {
+                            const next = !globalSettings.maintenanceModeEnabled;
+                            setGlobalSettings(s => ({ ...s, maintenanceModeEnabled: next }));
+                            albumService.updateGlobalSettings({ maintenanceModeEnabled: next });
+                          }}
+                          className={`w-14 h-8 rounded-full relative transition-all duration-300 shadow-inner ${globalSettings.maintenanceModeEnabled ? 'bg-fifa-red' : 'bg-gray-800'}`}
+                        >
+                          <motion.div 
+                            animate={{ x: globalSettings.maintenanceModeEnabled ? 26 : 4 }}
+                            className="absolute top-1 w-6 h-6 bg-white rounded-full shadow-lg" 
+                          />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Top Opening Announcement Edit Section */}
+                    <div className="p-5 bg-white/[0.02] rounded-[1.8rem] border border-white/5 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-1">
+                          <h3 className="font-bold text-white text-sm">
+                            {isEs ? 'Anuncio Emergente General' : 'Startup Pop-up Broadcast'}
+                          </h3>
+                          <p className="text-xs text-gray-500 leading-relaxed">
+                            {isEs ? 'Configura el texto que verán tus usuarios al abrir la app.' : 'Draft custom message shown to collectors on startup.'}
+                          </p>
+                        </div>
+                        <button 
+                          onClick={() => {
+                            const next = !globalSettings.announcementEnabled;
+                            setGlobalSettings(s => ({ ...s, announcementEnabled: next }));
+                            albumService.updateGlobalSettings({ announcementEnabled: next });
+                          }}
+                          className={`w-14 h-8 rounded-full relative transition-all duration-300 shadow-inner shrink-0 ${globalSettings.announcementEnabled ? 'bg-fifa-gold' : 'bg-gray-800'}`}
+                        >
+                          <motion.div 
+                            animate={{ x: globalSettings.announcementEnabled ? 26 : 4 }}
+                            className="absolute top-1 w-6 h-6 bg-white rounded-full shadow-lg" 
+                          />
+                        </button>
+                      </div>
+
+                      <div className="space-y-2.5 pt-2 border-t border-white/5">
+                        <textarea
+                          value={adminAnnouncementMessage}
+                          onChange={(e) => setAdminAnnouncementMessage(e.target.value)}
+                          placeholder={isEs ? 'Escribe tu anuncio público aquí...' : 'Write the public notification context here...'}
+                          className="w-full h-24 bg-black/60 border border-white/10 rounded-2xl p-3 text-xs text-white focus:outline-none focus:border-fifa-gold/40 transition-colors resize-none placeholder-gray-600 font-sans leading-relaxed"
+                        />
+                        <div className="flex justify-end">
+                          <button
+                            onClick={async () => {
+                              try {
+                                setSaveAnnounceLoading(true);
+                                await albumService.updateGlobalSettings({ announcementText: adminAnnouncementMessage });
+                                setGlobalSettings(s => ({ ...s, announcementText: adminAnnouncementMessage }));
+                                alert(isEs ? '¡Mensaje guardado correctamente!' : 'Message saved successfully!');
+                              } catch (err) {
+                                console.error(err);
+                              } finally {
+                                setSaveAnnounceLoading(false);
+                              }
+                            }}
+                            disabled={saveAnnounceLoading}
+                            className="px-5 py-2.5 bg-fifa-gold text-black text-xs font-black uppercase tracking-wider rounded-xl hover:bg-yellow-400 hover:scale-[1.02] transition-all active:scale-[0.98] disabled:opacity-50"
+                          >
+                            {saveAnnounceLoading ? (isEs ? 'Guardando...' : 'Saving...') : (isEs ? 'Guardar Cambios' : 'Save Text')}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 2. USER MANAGER TAB */}
+                {adminActiveTab === 'users' && (
+                  <div className="space-y-4">
+                    {/* Search Field */}
+                    <div className="relative">
+                      <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+                      <input
+                        type="text"
+                        value={adminSearch}
+                        onChange={(e) => setAdminSearch(e.target.value)}
+                        placeholder={isEs ? "Filtrar por correo o nickname..." : "Search registered collector email or name..."}
+                        className="w-full bg-white/5 border border-white/5 rounded-2xl pl-11 pr-4 py-3 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-fifa-gold/40 transition-all"
+                      />
+                    </div>
+
+                    {/* Collectors Container */}
+                    <div className="bg-white/[0.01] border border-white/5 rounded-2xl p-2 max-h-[350px] overflow-y-auto space-y-2 divide-y divide-white/5">
+                      {adminMetricsLoading ? (
+                        <div className="py-12 flex flex-col items-center justify-center gap-3 text-gray-500">
+                          <Activity className="animate-spin text-fifa-gold" size={24} />
+                          <span className="text-xs font-mono tracking-widest uppercase">{isEs ? 'Accediendo a base de datos...' : 'Streaming from Firestore...'}</span>
+                        </div>
+                      ) : adminUsers.length === 0 ? (
+                        <div className="py-12 text-center text-xs text-gray-500 font-sans">
+                          {isEs ? 'Aún no hay coleccionistas registrados.' : 'No collectors registered yet.'}
+                        </div>
+                      ) : (
+                        adminUsers
+                          .filter(u => {
+                            const queryStr = adminSearch.toLowerCase().trim();
+                            if (!queryStr) return true;
+                            const email = (u.email || "").toLowerCase();
+                            const name = (u.displayName || "").toLowerCase();
+                            return email.includes(queryStr) || name.includes(queryStr);
+                          })
+                          .map((colUser: any) => (
+                            <div key={colUser.id} className="flex items-center justify-between p-3.5 hover:bg-white/[0.02] rounded-xl transition-all">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-fifa-gold/20 to-[#1e1402] border border-fifa-gold/30 flex items-center justify-center text-xs font-bold text-fifa-gold uppercase shrink-0">
+                                  {(colUser.displayName || colUser.email || '?')[0]}
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-white font-bold text-xs truncate max-w-[150px] sm:max-w-[200px]">
+                                      {colUser.displayName || 'No Name'}
+                                    </span>
+                                    {colUser.isPremium && (
+                                      <Diamond fill="currentColor" className="text-fifa-gold animate-pulse shrink-0" size={12} />
+                                    )}
+                                  </div>
+                                  <span className="text-[10px] text-gray-500 block truncate max-w-[180px] sm:max-w-[240px] font-mono leading-tight">
+                                    {colUser.email || colUser.id}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => handleToggleUserPremium(colUser.id, !!colUser.isPremium)}
+                                  className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all border ${colUser.isPremium ? 'bg-fifa-gold text-black border-fifa-gold' : 'bg-transparent text-gray-400 border-white/10 hover:border-fifa-gold/30 hover:text-white'}`}
+                                >
+                                  {colUser.isPremium ? 'Premium (PRO)' : 'Grant PRO'}
+                                </button>
+                              </div>
+                            </div>
+                          ))
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* 3. ANALYTICS & STATS TAB */}
+                {adminActiveTab === 'stats' && (
+                  <div className="space-y-4">
+                    {/* Metrics Bento Grid */}
+                    <div className="grid grid-cols-2 gap-4">
+                      {/* Metric 1 */}
+                      <div className="p-5 bg-white/[0.02] border border-white/5 rounded-2xl text-center space-y-1.5">
+                        <span className="text-[10px] uppercase font-bold tracking-widest text-gray-500 block">
+                          {isEs ? 'Coleccionistas Activos' : 'Total Collectors'}
+                        </span>
+                        {adminMetricsLoading ? (
+                          <div className="h-6 w-16 bg-white/5 rounded animate-pulse mx-auto" />
+                        ) : (
+                          <span className="text-2xl font-display font-black text-white">{adminStats.totalUsers}</span>
+                        )}
+                        <span className="text-[9px] text-gray-600 block">{isEs ? 'Usuarios en base de datos' : 'Registered in database'}</span>
+                      </div>
+
+                      {/* Metric 2 */}
+                      <div className="p-5 bg-white/[0.02] border border-white/5 rounded-2xl text-center space-y-1.5">
+                        <span className="text-[10px] uppercase font-bold tracking-widest text-gray-500 block">
+                          {isEs ? 'Álbumes Creados' : 'Active Albums'}
+                        </span>
+                        {adminMetricsLoading ? (
+                          <div className="h-6 w-16 bg-white/5 rounded animate-pulse mx-auto" />
+                        ) : (
+                          <span className="text-2xl font-display font-black text-white">{adminStats.totalAlbums}</span>
+                        )}
+                        <span className="text-[9px] text-gray-600 block">{isEs ? 'Colecciones activas' : 'Unique collections'}</span>
+                      </div>
+
+                      {/* Metric 3 */}
+                      <div className="p-5 bg-white/[0.02] border border-white/5 rounded-2xl text-center col-span-2 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] uppercase font-bold tracking-widest text-gray-500">
+                            {isEs ? 'Proporción de Suscripciones VIP' : 'Premium Subscriber Rate'}
+                          </span>
+                          <span className="text-xs text-fifa-gold font-bold">
+                            {adminStats.totalUsers > 0 ? Math.round((adminStats.totalPremium / adminStats.totalUsers) * 100) : 0}%
+                          </span>
+                        </div>
+                        
+                        <div className="w-full bg-white/5 rounded-full h-2 overflow-hidden">
+                          <motion.div 
+                            initial={{ width: 0 }}
+                            animate={{ width: adminStats.totalUsers > 0 ? `${(adminStats.totalPremium / adminStats.totalUsers) * 100}%` : '0%' }}
+                            className="bg-fifa-gold h-full rounded-full"
+                          />
+                        </div>
+
+                        <div className="flex justify-between items-center text-[10px] text-gray-500 font-mono">
+                          <span>{adminStats.totalPremium} {isEs ? 'Usuarios Premium' : 'Subscribers'}</span>
+                          <span>{adminStats.totalUsers - adminStats.totalPremium} {isEs ? 'Básicos' : 'Free tier'}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Operational System Telemetry Details */}
+                    <div className="p-5 bg-black/40 border border-white/5 rounded-2xl font-mono text-[10px] text-left space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-500 uppercase font-black">{isEs ? 'SISTEMA OPERATIVO' : 'SYSTEM PROTOCOL'}</span>
+                        <span className="text-green-500 font-bold">ONLINE</span>
+                      </div>
+                      <div className="w-full h-px bg-white/5 my-2" />
+                      <div className="grid grid-cols-2 gap-y-1.5 text-gray-400">
+                        <div>Server Ingress:</div><div className="text-white text-right">0.0.0.0:3000</div>
+                        <div>Target Engine:</div><div className="text-white text-right">Google Cloud Run</div>
+                        <div>Database Sync:</div><div className="text-white text-right">Cloud Firestore</div>
+                        <div>Active Key:</div><div className="text-fifa-gold text-right truncate">HIDDEN (API ENV)</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Console Sync Bar */}
+              <div className="mt-6 pt-5 border-t border-white/5 shrink-0 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse" />
+                  <span className="text-[10px] text-gray-500 font-black uppercase tracking-[0.18em] font-mono">
+                    {isEs ? 'CONEXIÓN EN TIEMPO REAL ACTIVA' : 'REAL-TIME CONNECTION STABLE'}
+                  </span>
+                </div>
+                <span className="text-[10px] text-gray-700 font-bold font-mono">CC-v3.5</span>
               </div>
             </motion.div>
           </div>
