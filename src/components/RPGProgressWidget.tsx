@@ -5,6 +5,7 @@ import {
   Star, Activity, TrendingUp, PlusCircle, Repeat, Globe, 
   Diamond, ShieldCheck, CheckCircle2 
 } from "lucide-react";
+import { LevelUpCelebration } from "./LevelUpCelebration";
 
 // Map achievement IDs to their corresponding Lucide Icons to prevent runtime reference issues
 const iconMap: Record<string, React.ComponentType<any>> = {
@@ -53,25 +54,52 @@ export const RPGProgressWidget: React.FC<RPGProgressWidgetProps> = ({
   // Daily XP states
   const [dailyXp, setDailyXp] = useState(0);
   const [bonusLevels, setBonusLevels] = useState(0);
+  const [streak, setStreak] = useState(1);
+  const [showLevelUp, setShowLevelUp] = useState(false);
+  const [celebratedLevel, setCelebratedLevel] = useState(1);
   const [notification, setNotification] = useState<{ text: string; bg: string } | null>(null);
 
   useEffect(() => {
     const storageKeyXp = "colecollect_daily_xp_v1";
     const storageKeyDate = "colecollect_last_login_date_v1";
     const storageKeyBonus = "colecollect_bonus_levels_v1";
+    const storageKeyStreak = "colecollect_streak_v1";
 
     const savedXp = parseInt(localStorage.getItem(storageKeyXp) || "0", 10);
     const savedBonus = parseInt(localStorage.getItem(storageKeyBonus) || "0", 10);
-    const savedDate = localStorage.getItem(storageKeyDate) || "";
+    const savedDateStr = localStorage.getItem(storageKeyDate) || "";
+    const savedStreak = parseInt(localStorage.getItem(storageKeyStreak) || "1", 10);
 
     setDailyXp(savedXp);
     setBonusLevels(savedBonus);
+    setStreak(savedStreak);
 
     // Track login on subsequent days
-    const todayDate = new Date().toLocaleDateString();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayMs = today.getTime();
 
-    if (savedDate !== todayDate) {
-      const xpReward = 20;
+    let lastLoginMs = 0;
+    if (savedDateStr) {
+      const lastLoginDate = new Date(savedDateStr);
+      lastLoginDate.setHours(0, 0, 0, 0);
+      lastLoginMs = lastLoginDate.getTime();
+    }
+
+    const oneDayMs = 24 * 60 * 60 * 1000;
+    // Calculate difference in whole days between today and last login
+    const diffDays = savedDateStr ? Math.round((todayMs - lastLoginMs) / oneDayMs) : 999;
+
+    if (diffDays >= 1) {
+      // Consecutive check: if exactly 1 day since last login, streak rolls over; otherwise resets to 1
+      const newStreak = diffDays === 1 ? savedStreak + 1 : 1;
+      localStorage.setItem(storageKeyStreak, newStreak.toString());
+      setStreak(newStreak);
+
+      const multiplier = Math.min(2.0, 1.0 + (newStreak - 1) * 0.1);
+      const baseReward = 20;
+      const xpReward = Math.round(baseReward * multiplier);
+
       const nextXpTotal = savedXp + xpReward;
       let levelUp = false;
       let newBonus = savedBonus;
@@ -79,13 +107,13 @@ export const RPGProgressWidget: React.FC<RPGProgressWidgetProps> = ({
 
       if (nextXpTotal >= 100) {
         levelUp = true;
-        newBonus = savedBonus + 1;
+        newBonus = savedBonus + Math.floor(nextXpTotal / 100);
         finalXp = nextXpTotal % 100;
       }
 
       localStorage.setItem(storageKeyXp, finalXp.toString());
       localStorage.setItem(storageKeyBonus, newBonus.toString());
-      localStorage.setItem(storageKeyDate, todayDate);
+      localStorage.setItem(storageKeyDate, today.toISOString());
 
       setDailyXp(finalXp);
       setBonusLevels(newBonus);
@@ -95,23 +123,34 @@ export const RPGProgressWidget: React.FC<RPGProgressWidgetProps> = ({
         if (levelUp) {
           setNotification({
             text: isEs 
-              ? `¡SUBIDA DE NIVEL! +${xpReward} XP Recompensa Diaria (Nivel Extra +1)` 
-              : `LEVEL UP! +${xpReward} XP Daily Bonus (Extra Level +1)`,
+              ? `¡SUBIDA DE NIVEL! +${xpReward} XP Recompensa Diaria (Nivel Extra +${newBonus - savedBonus}, Racha de ${newStreak} días, Multiplicador: ${multiplier.toFixed(1)}x)` 
+              : `LEVEL UP! +${xpReward} XP Daily Bonus (Extra Level +${newBonus - savedBonus}, Streak of ${newStreak} days, Multiplier: ${multiplier.toFixed(1)}x)`,
             bg: "from-amber-600 via-yellow-500 to-amber-500 text-black border-yellow-300/40"
           });
+
+          const baseLevel = (() => {
+            if (percentage === 100) return 99;
+            if (percentage >= 90) return 80;
+            if (percentage >= 70) return 65;
+            if (percentage >= 45) return 42;
+            if (percentage >= 20) return 18;
+            return 1;
+          })();
+          setCelebratedLevel(baseLevel + newBonus);
+          setShowLevelUp(true);
         } else {
           setNotification({
             text: isEs 
-              ? `¡Recompensa Diaria! +${xpReward} XP por abrir la app hoy (${finalXp}/100 XP)` 
-              : `Daily Login Bonus! +${xpReward} XP claimed successfully (${finalXp}/100 XP)`,
+              ? `¡Recompensa Diaria! +${xpReward} XP por abrir la app hoy (Racha: ${newStreak} días, Multiplicador: ${multiplier.toFixed(1)}x)` 
+              : `Daily Login Bonus! +${xpReward} XP claimed successfully! (Streak: ${newStreak} days, Multiplier: ${multiplier.toFixed(1)}x)`,
             bg: "from-fifa-gold/20 via-[#1e1402] to-black text-fifa-gold border-fifa-gold/30"
           });
         }
 
-        // Auto-dismiss in 6 seconds
+        // Auto-dismiss in 7 seconds
         setTimeout(() => {
           setNotification(null);
-        }, 6000);
+        }, 7000);
       }, 800);
     }
   }, [isEs]);
@@ -193,6 +232,14 @@ export const RPGProgressWidget: React.FC<RPGProgressWidgetProps> = ({
       transition={{ duration: 0.4 }}
       className={`relative overflow-hidden bg-gradient-to-br from-[#121216] via-[#16161c] to-[#0d0d10] border rounded-[2.5rem] p-6 lg:p-8 shadow-2xl transition-all ${rankInfo.bgGlow}`}
     >
+      {/* Level Up Celebration Fullscreen Popup Overlay */}
+      <LevelUpCelebration
+        isOpen={showLevelUp}
+        newLevel={celebratedLevel}
+        onClose={() => setShowLevelUp(false)}
+        isEs={isEs}
+      />
+
       {/* Dynamic gamer grid back-glow */}
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_-20%,rgba(212,175,55,0.08),transparent_70%)] pointer-events-none" />
       <div className="absolute top-0 right-0 p-6 opacity-[0.03] select-none pointer-events-none">
@@ -283,6 +330,17 @@ export const RPGProgressWidget: React.FC<RPGProgressWidgetProps> = ({
 
           {/* Quick Stats Bento block */}
           <div className="flex flex-wrap items-center gap-2 sm:self-center">
+            {/* Consecutive Login Streak Chip */}
+            <div className="px-3.5 py-2 bg-amber-500/10 border border-amber-500/20 rounded-2xl flex items-center gap-1.5 shadow-[0_0_15px_rgba(245,158,11,0.06)]">
+              <span className="text-xs text-amber-500 animate-pulse">🔥</span>
+              <span className="text-xs text-white font-bold font-mono">
+                {streak} {isEs ? (streak === 1 ? 'día' : 'días') : (streak === 1 ? 'day' : 'days')}
+              </span>
+              <span className="text-[9px] font-bold text-amber-500 font-mono bg-amber-500/10 px-1 py-0.5 rounded-md">
+                {(Math.min(2.0, 1.0 + (streak - 1) * 0.1)).toFixed(1)}x
+              </span>
+            </div>
+
             <div className="px-3.5 py-2 bg-white/[0.03] border border-white/5 rounded-2xl flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-fifa-gold animate-ping" />
               <span className="text-xs font-mono font-black text-white">{percentage}% XP</span>

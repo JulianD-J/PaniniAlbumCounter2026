@@ -3087,6 +3087,9 @@ export default function App() {
   const [includeCocaColaInStats, setIncludeCocaColaInStats] = useState<boolean>(() => {
     return localStorage.getItem('includeCocaColaInStats') !== 'false';
   });
+  const [hideRPGWidget, setHideRPGWidget] = useState<boolean>(() => {
+    return localStorage.getItem('hideRPGWidget') === 'true';
+  });
 
   useEffect(() => {
     if (theme === 'light') {
@@ -4818,24 +4821,26 @@ export default function App() {
             >
               {!isPremium && <PremiumBanner onUpgrade={() => setShowPremiumModal(true)} type="offline" />}
               
-              <div className="mb-6">
-                <RPGProgressWidget 
-                  obtained={totalStats.obtained}
-                  total={totalStats.total}
-                  repeated={totalStats.repeated}
-                  isEs={isEs}
-                  achievements={appAchievements}
-                  onScrollToMilestones={() => {
-                    setView('stats');
-                    setTimeout(() => {
-                      const section = document.getElementById('album-milestones-section');
-                      if (section) {
-                        section.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                      }
-                    }, 150);
-                  }}
-                />
-              </div>
+              {!hideRPGWidget && (
+                <div className="mb-6">
+                  <RPGProgressWidget 
+                    obtained={totalStats.obtained}
+                    total={totalStats.total}
+                    repeated={totalStats.repeated}
+                    isEs={isEs}
+                    achievements={appAchievements}
+                    onScrollToMilestones={() => {
+                      setView('stats');
+                      setTimeout(() => {
+                        const section = document.getElementById('album-milestones-section');
+                        if (section) {
+                          section.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                      }, 150);
+                    }}
+                  />
+                </div>
+              )}
 
               <ExportActions 
                 inventory={inventory} 
@@ -5254,6 +5259,39 @@ export default function App() {
                         layout
                         transition={{ type: "spring", stiffness: 500, damping: 30 }}
                         animate={{ x: includeCocaColaInStats ? 26 : 4 }}
+                        className="w-6 h-6 rounded-full bg-white shadow-md"
+                      />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Hide RPG Progress Widget Toggle */}
+                <div className="space-y-2 pt-4 border-t border-white/5">
+                  <div className="flex items-center justify-between px-1">
+                    <div className="flex flex-col pr-4">
+                      <label className="text-xs font-bold text-white">
+                        {i18n.language.startsWith('es') ? 'Ocultar progreso RPG' : 'Hide RPG Progress'}
+                      </label>
+                      <p className="text-[10px] text-gray-400 mt-1 leading-normal">
+                        {i18n.language.startsWith('es') 
+                          ? 'Ocultar el panel de nivel RPG, rango, racha y medallas.' 
+                          : 'Hide the RPG progress dashboard, rank, streaks, and medals.'}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        const next = !hideRPGWidget;
+                        setHideRPGWidget(next);
+                        localStorage.setItem('hideRPGWidget', next ? 'true' : 'false');
+                        hapticFeedback(ImpactStyle.Light);
+                      }}
+                      className={`w-14 h-8 rounded-full relative transition-all duration-300 shadow-inner flex items-center shrink-0 ${hideRPGWidget ? 'bg-fifa-gold' : 'bg-gray-800'}`}
+                      id="hide-rpg-toggle-btn"
+                    >
+                      <motion.div 
+                        layout
+                        transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                        animate={{ x: hideRPGWidget ? 26 : 4 }}
                         className="w-6 h-6 rounded-full bg-white shadow-md"
                       />
                     </button>
