@@ -700,6 +700,30 @@ export const albumService = {
     }
   },
 
+  async saveInvertedInventory(albumId: string, missingCodes: string[], allCodes: string[]) {
+    const docRef = doc(db, 'albums', albumId);
+    try {
+      const newInventory: Record<string, any> = {};
+      const missingSet = new Set(missingCodes.map(c => c.trim().toUpperCase()));
+      
+      allCodes.forEach(code => {
+        const isMissing = missingSet.has(code.toUpperCase());
+        newInventory[code] = {
+          quantity: isMissing ? 0 : 1,
+          isConseguida: !isMissing,
+          updatedAt: new Date().toISOString()
+        };
+      });
+
+      await updateDoc(docRef, {
+        inventory: newInventory,
+        updatedAt: serverTimestamp()
+      });
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, `albums/${albumId}`);
+    }
+  },
+
   async getTotalAlbumsCount() {
     try {
       const snap = await getDocs(collection(db, 'albums'));

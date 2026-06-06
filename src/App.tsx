@@ -20,6 +20,7 @@ import {
 } from 'firebase/auth';
 import { onSnapshot, doc } from 'firebase/firestore';
 import { albumService } from './lib/albumService';
+import { InvertedModeModal } from './components/InvertedModeModal';
 import { 
   TEAMS, 
   SPECIALS, 
@@ -96,7 +97,7 @@ import {
 } from 'recharts';
 import { RPGProgressWidget } from './components/RPGProgressWidget';
 
-const hapticFeedback = async (style = ImpactStyle.Light) => {
+export const hapticFeedback = async (style = ImpactStyle.Light) => {
   try {
     await Haptics.impact({ style });
   } catch (e) {
@@ -3079,6 +3080,7 @@ export default function App() {
   const [transferLoading, setTransferLoading] = useState(false);
   
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showInvertedModal, setShowInvertedModal] = useState(false);
   const [editingAlbumId, setEditingAlbumId] = useState<string | null>(null);
   const [editingAlbumName, setEditingAlbumName] = useState("");
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
@@ -5298,6 +5300,32 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* Inverted Mode Button */}
+                <div className="space-y-2 pt-4 border-t border-white/5">
+                  <div className="flex flex-col">
+                    <label className="text-xs font-bold text-white mb-1">
+                      {i18n.language.startsWith('es') ? 'Modo Inverso / Rellenar' : 'Inverted Mode / Auto-Fill'}
+                    </label>
+                    <p className="text-[10px] text-gray-400 leading-normal mb-3">
+                      {i18n.language.startsWith('es') 
+                        ? 'Configura tu álbum marcando todo como completado excepto un máximo de 30 barajitas faltantes.' 
+                        : 'Configure your album by marking everything collected except up to 30 missing ones.'}
+                    </p>
+                    <button
+                      onClick={() => {
+                        hapticFeedback(ImpactStyle.Medium);
+                        setShowSettingsModal(false);
+                        setShowInvertedModal(true);
+                      }}
+                      className="w-full bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 transition-all font-bold text-xs py-3 rounded-xl flex items-center justify-center gap-2 shadow-sm"
+                      id="inverted-mode-btn"
+                    >
+                      <Star className="animate-pulse text-amber-400" size={13} />
+                      <span>{i18n.language.startsWith('es') ? 'Configurar Modo Inverso' : 'Configure Inverted Mode'}</span>
+                    </button>
+                  </div>
+                </div>
+
                 {/* Album Management */}
                 <div className="space-y-4 pt-4 border-t border-white/5">
                   <div className="flex items-center justify-between px-1">
@@ -5441,6 +5469,25 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Inverted Mode Modal */}
+      <InvertedModeModal 
+        isOpen={showInvertedModal}
+        onClose={() => setShowInvertedModal(false)}
+        albums={albums}
+        activeAlbum={activeAlbum}
+        setActiveAlbum={setActiveAlbum}
+        albumService={albumService}
+        isEs={i18n.language.startsWith('es')}
+        onSuccess={(albumName) => {
+          confetti({
+            particleCount: 150,
+            spread: 80,
+            origin: { y: 0.6 },
+            colors: ['#D4AF37', '#ffffff', '#FFD700']
+          });
+        }}
+      />
 
       {/* Transfer Modal */}
       <AnimatePresence>
