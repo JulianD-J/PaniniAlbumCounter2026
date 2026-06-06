@@ -3024,7 +3024,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [albums, setAlbums] = useState<any[]>([]);
   const [activeAlbum, setActiveAlbum] = useState<any>(null);
-  const [inventory, setInventory] = useState<Record<string, any>>({});
+  const [rawInventory, setRawInventory] = useState<Record<string, any>>({});
   const [searchQuery, setSearchQuery] = useState("");
   const [filter, setFilter] = useState<'all' | 'repeated' | 'missing'>('all');
   const [quickTeam, setQuickTeam] = useState("");
@@ -3092,6 +3092,34 @@ export default function App() {
   const [hideRPGWidget, setHideRPGWidget] = useState<boolean>(() => {
     return localStorage.getItem('hideRPGWidget') === 'true';
   });
+  const [universalRepeats, setUniversalRepeats] = useState<boolean>(() => {
+    return localStorage.getItem('universalRepeats') === 'true';
+  });
+
+  const inventory = useMemo(() => {
+    if (!universalRepeats) return rawInventory;
+    
+    const repeatsMap = userProfile?.universal_repeats || {};
+    const merged: Record<string, any> = {};
+    
+    // Copy and adapt counts based on universal repeat map
+    Object.keys(rawInventory).forEach(code => {
+      const item = rawInventory[code];
+      const isConseguida = item?.isConseguida || false;
+      const repeats = typeof repeatsMap[code] === 'number' ? repeatsMap[code] : 0;
+      const count = (isConseguida ? 1 : 0) + repeats;
+      
+      merged[code] = {
+        ...item,
+        isConseguida,
+        count,
+        quantity: count,
+        status: isConseguida ? (count > 1 ? 'repeated' : 'obtained') : 'missing'
+      };
+    });
+    
+    return merged;
+  }, [rawInventory, universalRepeats, userProfile?.universal_repeats]);
 
   useEffect(() => {
     if (theme === 'light') {
@@ -3370,7 +3398,7 @@ export default function App() {
   useEffect(() => {
     if (activeAlbum) {
       const unsub = albumService.subscribeToInventory(activeAlbum.id, (inv) => {
-        setInventory(inv);
+        setRawInventory(inv);
       });
       return unsub;
     }
@@ -3546,7 +3574,7 @@ export default function App() {
           setActiveAlbum(remainingArr[0]);
         } else {
           setActiveAlbum(null);
-          setInventory({});
+          setRawInventory({});
         }
       }
       
@@ -3571,6 +3599,20 @@ export default function App() {
     }
   };
 
+  const handleToggleUniversalRepeats = async (enabled: boolean) => {
+    setUniversalRepeats(enabled);
+    localStorage.setItem('universalRepeats', enabled ? 'true' : 'false');
+    hapticFeedback(ImpactStyle.Medium);
+    
+    if (enabled && user && albums.length > 0) {
+      try {
+        await albumService.initializeUniversalRepeats(user.uid, albums);
+      } catch (err) {
+        console.error("Failed to initialize universal repeats:", err);
+      }
+    }
+  };
+
   const handleUpdateSticker = (code: string, status: StickerStatus, count: number) => {
     if (!activeAlbum) return;
     
@@ -3580,7 +3622,14 @@ export default function App() {
       return;
     }
     
-    albumService.updateSticker(activeAlbum.id, code, status, count);
+    albumService.updateSticker(
+      activeAlbum.id, 
+      code, 
+      status, 
+      count, 
+      user?.uid || undefined, 
+      universalRepeats
+    );
   };
 
   const handleTransferSticker = async (targetAlbumId: string) => {
@@ -3590,7 +3639,7 @@ export default function App() {
       await albumService.transferSticker(activeAlbum.id, targetAlbumId, transferStickerCode);
       const current = inventory[transferStickerCode];
       if (current) {
-        setInventory(prev => ({
+        setRawInventory(prev => ({
           ...prev,
           [transferStickerCode]: { 
             ...current, 
@@ -5294,6 +5343,37 @@ export default function App() {
                         layout
                         transition={{ type: "spring", stiffness: 500, damping: 30 }}
                         animate={{ x: hideRPGWidget ? 26 : 4 }}
+                        className="w-6 h-6 rounded-full bg-white shadow-md"
+                      />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Universal Repeats Toggle */}
+                <div className="space-y-2 pt-4 border-t border-white/5">
+                  <div className="flex items-center justify-between px-1">
+                    <div className="flex flex-col pr-4">
+                      <label className="text-xs font-bold text-white">
+                        {i18n.language.startsWith('es') ? 'Repetidas Universales' : 'Universal Repeats'}
+                      </label>
+                      <p className="text-[10px] text-gray-400 mt-1 leading-normal">
+                        {i18n.language.startsWith('es') 
+                          ? 'Sincronizar y compartir las barajitas repetidas automáticamente entre todos los álbumes de tu cuenta.' 
+                          : 'Sincronizadamente keep and share your duplicate stickers automatically across all albums in your account.'}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        const next = !universalRepeats;
+                        handleToggleUniversalRepeats(next);
+                      }}
+                      className={`w-14 h-8 rounded-full relative transition-all duration-300 shadow-inner flex items-center shrink-0 ${universalRepeats ? 'bg-fifa-gold' : 'bg-gray-800'}`}
+                      id="universal-repeats-toggle-btn"
+                    >
+                      <motion.div 
+                        layout
+                        transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                        animate={{ x: universalRepeats ? 26 : 4 }}
                         className="w-6 h-6 rounded-full bg-white shadow-md"
                       />
                     </button>

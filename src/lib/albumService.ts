@@ -454,7 +454,7 @@ export const albumService = {
     });
   },
 
-  async updateSticker(albumId: string, stickerCode: string, status: string, count: number) {
+  async updateSticker(albumId: string, stickerCode: string, status: string, count: number, userId?: string, universalRepeats?: boolean) {
     const docRef = doc(db, 'albums', albumId);
     try {
       const isConseguida = status !== 'missing' && count > 0;
@@ -468,8 +468,52 @@ export const albumService = {
       };
 
       await updateDoc(docRef, updateData);
+
+      // Synchronize universal repeats if active
+      if (universalRepeats && userId) {
+        const userRef = doc(db, 'users', userId);
+        const repeatCount = status === 'repeated' ? Math.max(0, count - 1) : 0;
+        await updateDoc(userRef, {
+          [`universal_repeats.${stickerCode}`]: repeatCount,
+          updatedAt: serverTimestamp()
+        });
+      }
     } catch (e) {
       handleFirestoreError(e, OperationType.UPDATE, `albums/${albumId}`);
+    }
+  },
+
+  async initializeUniversalRepeats(userId: string, albumsList: any[]) {
+    try {
+      const userRef = doc(db, 'users', userId);
+      const universal_repeats: Record<string, number> = {};
+      
+      albumsList.forEach(album => {
+        const dbInventory = album.inventory || {};
+        Object.keys(dbInventory).forEach(code => {
+          const item = dbInventory[code] || {};
+          const isConseguida = typeof item.isConseguida === 'boolean' 
+            ? item.isConseguida 
+            : ((item.quantity || 0) > 0);
+          const qty = typeof item.quantity === 'number' ? item.quantity : (item.count || 0);
+          
+          if (isConseguida && qty > 1) {
+            const repeats = qty - 1;
+            const currentMax = universal_repeats[code] || 0;
+            if (repeats > currentMax) {
+              universal_repeats[code] = repeats;
+            }
+          }
+        });
+      });
+
+      await updateDoc(userRef, {
+        universal_repeats,
+        updatedAt: serverTimestamp()
+      });
+    } catch (e) {
+      console.error("Error initializing universal repeats:", e);
+      throw e;
     }
   },
 
