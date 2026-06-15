@@ -1,6 +1,58 @@
 import pako from 'pako';
 import { TEAMS, SPECIALS } from '../constants';
 
+export interface Lamina {
+  section: string;
+  number: number;
+}
+
+export interface DecodedLaminasResult {
+  missing: Lamina[];
+  repeated: Lamina[];
+  faltantes: Lamina[];
+  repetidas: Lamina[];
+}
+
+/**
+ * Ordered list of sections for the 20-bit block architecture
+ * Index 0: 'FWC' (Offset: 0 bits)
+ * Index 1: 'MEX' (Offset: 20 bits)
+ * Index 37: 'ARG' (Offset: 740 bits - Byte 92)
+ * Total length is exactly 50 segments
+ */
+export const SECTIONS_ORDER: string[] = Array.from({ length: 50 }, (_, i) => {
+  if (i === 0) return 'FWC';
+  if (i === 1) return 'MEX';
+  if (i === 37) return 'ARG';
+  return `UNKNOWN_${i}`;
+});
+
+/**
+ * Parses a sticker code string (e.g. "FWC", "FWC5", "ARG20") into a Lamina structure
+ */
+export function codeToLamina(code: string): Lamina | null {
+  if (code === 'FWC') {
+    return { section: 'FWC', number: 0 };
+  }
+  const match = code.match(/^([A-Za-z]+)(\d+)$/);
+  if (!match) {
+    return null;
+  }
+  const section = match[1];
+  const number = parseInt(match[2], 10);
+  return { section, number };
+}
+
+/**
+ * Formats a Lamina structure back to a sticker code string
+ */
+export function laminaToCode(lamina: Lamina): string {
+  if (lamina.section === 'FWC' && lamina.number === 0) {
+    return 'FWC';
+  }
+  return `${lamina.section}${lamina.number}`;
+}
+
 /**
  * Gets the fixed list of 994 sticker codes in the deterministic order
  */
@@ -14,45 +66,181 @@ export function getStickerCodesOrder(cocaColaCount: number = 14): string[] {
 }
 
 /**
- * Encodes the inventory into a compressed QR string:
- * ⋋~[String_Bits_Faltantes_Base64_GZIP];[String_Bits_Repetidas_Base64_GZIP]
+ * Converts lists of missing and repeated Laminas into a packed QR string compatible with:
+ * ⋋~[Faltantes_Base64_GZIP];[Repetidas_Base64_GZIP]
  */
-export function encodeInventoryToQRString(inventory: Record<string, any>, cocaColaCount: number = 14): string {
-  const allCodes = getStickerCodesOrder(cocaColaCount);
+export function encodeLaminasToQRString(missingLaminas: Lamina[], repeatedLaminas: Lamina[]): string {
   const missingBitfield = new Uint8Array(125); // 125 bytes = 1000 bits
   const repeatedBitfield = new Uint8Array(125);
 
-  for (let i = 0; i < allCodes.length && i < 1000; i++) {
-    const code = allCodes[i];
-    const item = inventory[code];
-    const count = item?.count || item?.quantity || 0;
-    
-    // Default system behaviour: if we don't have it (or count is 0 / status is missing) it's missing (bit set to 1)
-    const isMissing = !item || item.status === 'missing' || count === 0;
-    const isRepeated = item?.status === 'repeated' || count > 1;
-
-    // Adjust Index to start at ID 1 for mathematical position formulas
-    const id = i + 1;
-    const byteIdx = Math.floor((id - 1) / 8);
-    const bitIdx = (id - 1) % 8;
-
-    if (isMissing) {
-      missingBitfield[byteIdx] |= (1 << (7 - bitIdx));
-    }
-    if (isRepeated) {
-      repeatedBitfield[byteIdx] |= (1 << (7 - bitIdx));
+  // Encode missing with Little-Endian bits
+  for (const lamina of missingLaminas) {
+    const sIdx = SECTIONS_ORDER.indexOf(lamina.section);
+    if (sIdx === -1) continue;
+    const internalBit = lamina.section === 'FWC' ? lamina.number : (lamina.number - 1);
+    const globalBitIndex = (sIdx * 20) + internalBit;
+    if (globalBitIndex >= 0 && globalBitIndex < 1000) {
+      const byteIdx = Math.floor(globalBitIndex / 8);
+      const bitIdx = globalBitIndex % 8;
+      // Little-endian
+      missingBitfield[byteIdx] |= (1 << bitIdx);
     }
   }
 
-  // Compress using pako GZIP
+  // Encode repeated with Little-Endian bits
+  for (const lamina of repeatedLaminas) {
+    const sIdx = SECTIONS_ORDER.indexOf(lamina.section);
+    if (sIdx === -1) continue;
+    const internalBit = lamina.section === 'FWC' ? lamina.number : (lamina.number - 1);
+    const globalBitIndex = (sIdx * 20) + internalBit;
+    if (globalBitIndex >= 0 && globalBitIndex < 1000) {
+      const byteIdx = Math.floor(globalBitIndex / 8);
+      const bitIdx = globalBitIndex % 8;
+      // Little-endian
+      repeatedBitfield[byteIdx] |= (1 << bitIdx);
+    }
+  }
+
   const missingCompressed = pako.gzip(missingBitfield);
   const repeatedCompressed = pako.gzip(repeatedBitfield);
 
-  // Convert to base64
   const missingBase64 = uint8ToBase64(missingCompressed);
   const repeatedBase64 = uint8ToBase64(repeatedCompressed);
 
   return `⋋~${missingBase64};${repeatedBase64}`;
+}
+
+/**
+ * Overloaded function to encode inventory or specified Lamina arrays.
+ * Supports both signatures:
+ * 1. encodeInventoryToQRString(faltantes: Lamina[], repetidas: Lamina[]): string
+ * 2. encodeInventoryToQRString(inventory: Record<string, any>, cocaColaCount?: number): string
+ */
+export function encodeInventoryToQRString(
+  faltantes: Lamina[],
+  repetidas: Lamina[]
+): string;
+export function encodeInventoryToQRString(
+  inventory: Record<string, any>,
+  cocaColaCount?: number
+): string;
+export function encodeInventoryToQRString(
+  firstArg: Lamina[] | Record<string, any>,
+  secondArg?: Lamina[] | number
+): string {
+  if (Array.isArray(firstArg)) {
+    // Signature: encodeInventoryToQRString(faltantes: Lamina[], repetidas: Lamina[]): string
+    const faltantes = firstArg as Lamina[];
+    const repetidas = (Array.isArray(secondArg) ? secondArg : []) as Lamina[];
+    return encodeLaminasToQRString(faltantes, repetidas);
+  } else {
+    // Signature: encodeInventoryToQRString(inventory: Record<string, any>, cocaColaCount = 14): string
+    const inventory = firstArg as Record<string, any>;
+    const cocaColaCount = typeof secondArg === 'number' ? secondArg : 14;
+
+    const allCodes = getStickerCodesOrder(cocaColaCount);
+    const missingLaminas: Lamina[] = [];
+    const repeatedLaminas: Lamina[] = [];
+
+    for (const code of allCodes) {
+      const lamina = codeToLamina(code);
+      if (!lamina) continue;
+
+      const item = inventory[code];
+      const count = item?.count || item?.quantity || 0;
+      
+      const isMissing = !item || item.status === 'missing' || count === 0;
+      const isRepeated = item?.status === 'repeated' || count > 1;
+
+      if (isMissing) {
+        missingLaminas.push(lamina);
+      }
+      if (isRepeated) {
+        repeatedLaminas.push(lamina);
+      }
+    }
+
+    return encodeLaminasToQRString(missingLaminas, repeatedLaminas);
+  }
+}
+
+/**
+ * Decodes the QR string into missing and repeated Lamina lists.
+ * Returns both English properties (missing/repeated) and Spanish properties (faltantes/repetidas)
+ * for seamless backward and forward compatibility.
+ */
+export function decodeQRStringToLaminas(qrString: string): DecodedLaminasResult {
+  const missing: Lamina[] = [];
+  const repeated: Lamina[] = [];
+
+  if (!qrString.startsWith('⋋~')) {
+    return { missing, repeated, faltantes: missing, repetidas: repeated };
+  }
+
+  try {
+    const parts = qrString.substring(2).split(';');
+    if (parts.length !== 2) {
+      return { missing, repeated, faltantes: missing, repetidas: repeated };
+    }
+
+    const [missingB64, repeatedB64] = parts;
+    const missingBytes = base64ToUint8(missingB64);
+    const repeatedBytes = base64ToUint8(repeatedB64);
+
+    const missingDecompressed = pako.ungzip(missingBytes);
+    const repeatedDecompressed = pako.ungzip(repeatedBytes);
+
+    // Decode missing bitfield using Little-Endian bits
+    for (let globalBitIndex = 0; globalBitIndex < 1000; globalBitIndex++) {
+      const byteIdx = Math.floor(globalBitIndex / 8);
+      const bitIdx = globalBitIndex % 8;
+
+      if (byteIdx < missingDecompressed.length) {
+        const isSet = (missingDecompressed[byteIdx] & (1 << bitIdx)) !== 0;
+        if (isSet) {
+          const sectionIdx = Math.floor(globalBitIndex / 20);
+          const internalBit = globalBitIndex % 20;
+          const section = SECTIONS_ORDER[sectionIdx];
+          if (section && !section.startsWith('UNKNOWN_')) {
+            const number = section === 'FWC' ? internalBit : (internalBit + 1);
+            missing.push({ section, number });
+          }
+        }
+      }
+
+      if (byteIdx < repeatedDecompressed.length) {
+        const isSet = (repeatedDecompressed[byteIdx] & (1 << bitIdx)) !== 0;
+        if (isSet) {
+          const sectionIdx = Math.floor(globalBitIndex / 20);
+          const internalBit = globalBitIndex % 20;
+          const section = SECTIONS_ORDER[sectionIdx];
+          if (section && !section.startsWith('UNKNOWN_')) {
+            const number = section === 'FWC' ? internalBit : (internalBit + 1);
+            repeated.push({ section, number });
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Failed to decode QR code to laminas:", err);
+  }
+
+  return { missing, repeated, faltantes: missing, repetidas: repeated };
+}
+
+/**
+ * Decodes a QR code string back into missing and repeated status arrays.
+ * Kept for full backward-compatibility with rest of application.
+ */
+export function decodeQRStringToStatus(qrString: string, cocaColaCount: number = 14): {
+  missingCodes: string[];
+  repeatedCodes: string[];
+} {
+  const { missing, repeated } = decodeQRStringToLaminas(qrString);
+  return {
+    missingCodes: missing.map(laminaToCode),
+    repeatedCodes: repeated.map(laminaToCode)
+  };
 }
 
 /**
@@ -68,61 +256,8 @@ function uint8ToBase64(arr: Uint8Array): string {
 }
 
 /**
- * Decodes a QR code string back into missing and repeated status arrays
- * (Very useful for compatibility checks, testing, and full completeness!)
+ * Standard utility to convert Base64 back to Uint8Array
  */
-export function decodeQRStringToStatus(qrString: string, cocaColaCount: number = 14): {
-  missingCodes: string[];
-  repeatedCodes: string[];
-} {
-  const missingCodes: string[] = [];
-  const repeatedCodes: string[] = [];
-
-  if (!qrString.startsWith('⋋~')) {
-    return { missingCodes, repeatedCodes };
-  }
-
-  try {
-    const parts = qrString.substring(2).split(';');
-    if (parts.length !== 2) {
-      return { missingCodes, repeatedCodes };
-    }
-
-    const [missingB64, repeatedB64] = parts;
-    const missingBytes = base64ToUint8(missingB64);
-    const repeatedBytes = base64ToUint8(repeatedB64);
-
-    const missingDecompressed = pako.ungzip(missingBytes);
-    const repeatedDecompressed = pako.ungzip(repeatedBytes);
-
-    const allCodes = getStickerCodesOrder(cocaColaCount);
-
-    for (let i = 0; i < allCodes.length && i < 1000; i++) {
-      const id = i + 1;
-      const byteIdx = Math.floor((id - 1) / 8);
-      const bitIdx = (id - 1) % 8;
-
-      if (byteIdx < missingDecompressed.length) {
-        const isMissing = (missingDecompressed[byteIdx] & (1 << (7 - bitIdx))) !== 0;
-        if (isMissing) {
-          missingCodes.push(allCodes[i]);
-        }
-      }
-
-      if (byteIdx < repeatedDecompressed.length) {
-        const isRepeated = (repeatedDecompressed[byteIdx] & (1 << (7 - bitIdx))) !== 0;
-        if (isRepeated) {
-          repeatedCodes.push(allCodes[i]);
-        }
-      }
-    }
-  } catch (err) {
-    console.error("Failed to decode QR code string:", err);
-  }
-
-  return { missingCodes, repeatedCodes };
-}
-
 function base64ToUint8(str: string): Uint8Array {
   const binary = atob(str);
   const len = binary.length;
