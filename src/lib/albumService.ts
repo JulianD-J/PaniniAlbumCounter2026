@@ -387,6 +387,16 @@ export const albumService = {
     }
   },
 
+  subscribeToAlbums(userId: string, callback: (albums: any[]) => void) {
+    const q = query(collection(db, 'albums'), where('userId', '==', userId));
+    return onSnapshot(q, (snapshot) => {
+      const albums = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      callback(albums);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'albums');
+    });
+  },
+
   async createAlbum(userId: string, name: string, isInverseMode: boolean = false, cocaColaCount: number = 14) {
     try {
       const docRef = await addDoc(collection(db, 'albums'), {
@@ -575,6 +585,8 @@ export const albumService = {
           passwordChangeEnabled: data.passwordChangeEnabled !== false,
           announcementEnabled: !!data.announcementEnabled,
           announcementText: data.announcementText || "",
+          announcementTextEs: data.announcementTextEs || "",
+          announcementTextEn: data.announcementTextEn || "",
           maintenanceModeEnabled: !!data.maintenanceModeEnabled
         };
       }
@@ -583,6 +595,8 @@ export const albumService = {
         passwordChangeEnabled: true,
         announcementEnabled: false,
         announcementText: "",
+        announcementTextEs: "",
+        announcementTextEn: "",
         maintenanceModeEnabled: false
       };
     } catch (e) {
@@ -592,6 +606,8 @@ export const albumService = {
         passwordChangeEnabled: true,
         announcementEnabled: false,
         announcementText: "",
+        announcementTextEs: "",
+        announcementTextEn: "",
         maintenanceModeEnabled: false
       };
     }
@@ -602,6 +618,8 @@ export const albumService = {
     passwordChangeEnabled?: boolean;
     announcementEnabled?: boolean;
     announcementText?: string;
+    announcementTextEs?: string;
+    announcementTextEn?: string;
     maintenanceModeEnabled?: boolean;
   }) {
     try {

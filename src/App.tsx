@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+// @ts-ignore
+import logoImg from '../logo.png';
 import { BillingPlugin } from 'capacitor-billing';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { StatusBar, Style } from '@capacitor/status-bar';
@@ -20,6 +22,9 @@ import {
 } from 'firebase/auth';
 import { onSnapshot, doc } from 'firebase/firestore';
 import { albumService } from './lib/albumService';
+import { encodeInventoryToQRString } from './lib/qrBitfield';
+import { QRCodeSVG } from 'qrcode.react';
+import { QrCode } from 'lucide-react';
 import { InvertedModeModal } from './components/InvertedModeModal';
 import { 
   TEAMS, 
@@ -578,6 +583,9 @@ const ExportActions = ({
 }) => {
   const { t, i18n } = useTranslation();
   const [exporting, setExporting] = useState<string | null>(null);
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  const [activeFormat, setActiveFormat] = useState<'csv' | 'pdf' | 'image' | 'text' | null>(null);
+  const [exportFilter, setExportFilter] = useState<'missing' | 'repeated' | 'all'>('missing');
 
   const removeAccents = (str: string): string => {
     return str
@@ -605,60 +613,133 @@ const ExportActions = ({
     return { cat: '📜', val: num };
   };
 
-  const getMissingData = () => {
-    const missing: { name: string, codes: number[] }[] = [];
+  const getGroupedData = (filterType: 'missing' | 'repeated' | 'all') => {
+    const isSpanish = i18n.language.startsWith('es');
+    const result: { name: string, codes: string[] }[] = [];
     
     // Group specials
-    const missingSpecials = SPECIALS.filter(c => !inventory[c] || inventory[c].status === 'missing')
-      .map(c => parseInt(c.replace('FWC', '')) || 0);
-    if (missingSpecials.length > 0) {
-      missing.push({ name: t('teams.FWC'), codes: missingSpecials.sort((a, b) => a - b) });
+    const filterSpecials = SPECIALS.filter(c => {
+      const item = inventory[c];
+      const status = item?.status || 'missing';
+      if (filterType === 'missing') return status === 'missing';
+      if (filterType === 'repeated') return status === 'repeated';
+      return true; // 'all'
+    });
+
+    if (filterSpecials.length > 0) {
+      const codes = filterSpecials.map(c => {
+        const num = parseInt(c.replace('FWC', '')) || 0;
+        const displayNum = num === 0 ? '00' : String(num);
+        if (filterType === 'all') {
+          const item = inventory[c];
+          const status = item?.status || 'missing';
+          const count = item?.count || (status === 'missing' ? 0 : 1);
+          const statusStr = isSpanish
+            ? (status === 'repeated' ? `R x${count}` : (status === 'obtained' ? 'Obtenida' : 'Faltante'))
+            : (status === 'repeated' ? `R x${count}` : (status === 'obtained' ? 'Obtained' : 'Missing'));
+          return `${displayNum} (${statusStr})`;
+        } else if (filterType === 'repeated') {
+          const item = inventory[c];
+          const count = item?.count || 2;
+          const repeatedCount = Math.max(1, count - 1);
+          return `${displayNum} (x${repeatedCount})`;
+        } else {
+          return displayNum;
+        }
+      });
+      result.push({ name: t('teams.FWC'), codes });
     }
 
     // Group teams
     TEAMS.forEach(team => {
-      const teamMissing: number[] = [];
-      for (let i = 1; i <= 20; i++) {
-        const c = `${team}${i}`;
-        if (!inventory[c] || inventory[c].status === 'missing') {
-          teamMissing.push(i);
-        }
-      }
-      if (teamMissing.length > 0) {
+      const teamCodes = Array.from({ length: 20 }, (_, i) => `${team}${i + 1}`).filter(c => {
+        const item = inventory[c];
+        const status = item?.status || 'missing';
+        if (filterType === 'missing') return status === 'missing';
+        if (filterType === 'repeated') return status === 'repeated';
+        return true; // 'all'
+      });
+
+      if (teamCodes.length > 0) {
         const teamName = TEAM_DETAILS[team] ? t(`teams.${TEAM_DETAILS[team].code}`) : team;
-        missing.push({ name: teamName, codes: teamMissing.sort((a, b) => a - b) });
+        const codes = teamCodes.map(c => {
+          const num = parseInt(c.replace(team, '')) || 0;
+          if (filterType === 'all') {
+            const item = inventory[c];
+            const status = item?.status || 'missing';
+            const count = item?.count || (status === 'missing' ? 0 : 1);
+            const statusStr = isSpanish
+              ? (status === 'repeated' ? `R x${count}` : (status === 'obtained' ? 'Obtenida' : 'Faltante'))
+              : (status === 'repeated' ? `R x${count}` : (status === 'obtained' ? 'Obtained' : 'Missing'));
+            return `${num} (${statusStr})`;
+          } else if (filterType === 'repeated') {
+            const item = inventory[c];
+            const count = item?.count || 2;
+            const repeatedCount = Math.max(1, count - 1);
+            return `${num} (x${repeatedCount})`;
+          } else {
+            return String(num);
+          }
+        });
+        result.push({ name: teamName, codes });
       }
     });
 
     // Group Coca-Cola
-    const missingCC = albumCC.filter(c => !inventory[c] || inventory[c].status === 'missing')
-      .map(c => parseInt(c.replace('CC', '')) || 0);
-    if (missingCC.length > 0) {
-      missing.push({ name: t('teams.CC'), codes: missingCC.sort((a, b) => a - b) });
+    const ccCodes = albumCC.filter(c => {
+      const item = inventory[c];
+      const status = item?.status || 'missing';
+      if (filterType === 'missing') return status === 'missing';
+      if (filterType === 'repeated') return status === 'repeated';
+      return true; // 'all'
+    });
+
+    if (ccCodes.length > 0) {
+      const codes = ccCodes.map(c => {
+        const num = parseInt(c.replace('CC', '')) || 0;
+        if (filterType === 'all') {
+          const item = inventory[c];
+          const status = item?.status || 'missing';
+          const count = item?.count || (status === 'missing' ? 0 : 1);
+          const statusStr = isSpanish
+            ? (status === 'repeated' ? `R x${count}` : (status === 'obtained' ? 'Obtenida' : 'Faltante'))
+            : (status === 'repeated' ? `R x${count}` : (status === 'obtained' ? 'Obtained' : 'Missing'));
+          return `${num} (${statusStr})`;
+        } else if (filterType === 'repeated') {
+          const item = inventory[c];
+          const count = item?.count || 2;
+          const repeatedCount = Math.max(1, count - 1);
+          return `${num} (x${repeatedCount})`;
+        } else {
+          return String(num);
+        }
+      });
+      result.push({ name: t('teams.CC'), codes });
     }
 
-    return missing;
+    return result;
   };
 
-  const handleExportCSV = async () => {
+  const handleExportCSV = async (filterType: 'missing' | 'repeated' | 'all') => {
     const isSpanish = i18n.language.startsWith('es');
-    const missingData = getMissingData();
+    const groupedData = getGroupedData(filterType);
+    const filterLabel = isSpanish 
+      ? (filterType === 'missing' ? 'Faltantes' : (filterType === 'repeated' ? 'Repetidas' : 'Todas'))
+      : (filterType === 'missing' ? 'Missing' : (filterType === 'repeated' ? 'Repeated' : 'All'));
     
     const fields = isSpanish 
-      ? ["Pais / Seleccion", "Barajitas Faltantes"] 
-      : ["Country/Team", "Missing Stickers"];
+      ? ["Pais / Seleccion", `Barajitas (${filterLabel})`] 
+      : ["Country/Team", `Stickers (${filterLabel})`];
 
-    const rows = missingData.map(item => {
+    const rows = groupedData.map(item => {
       let name = item.name;
-      let missingText = isSpanish
-        ? `${item.codes.join(' ')} (faltantes)`
-        : `${item.codes.join(' ')} (missing)`;
+      let stickersText = item.codes.join(' ');
       
       if (isSpanish) {
         name = removeAccents(name);
-        missingText = removeAccents(missingText);
+        stickersText = removeAccents(stickersText);
       }
-      return [name, missingText];
+      return [name, stickersText];
     });
 
     const csv = Papa.unparse({
@@ -667,7 +748,7 @@ const ExportActions = ({
     });
     
     if (Capacitor.isNativePlatform()) {
-      const filename = `Album2026_Missing_${userName?.replace(/\s+/g, '_') || 'collector'}.csv`;
+      const filename = `Album2026_${filterLabel}_${userName?.replace(/\s+/g, '_') || 'collector'}.csv`;
       try {
         await Filesystem.writeFile({
           path: filename,
@@ -691,26 +772,30 @@ const ExportActions = ({
       const link = document.createElement("a");
       const url = URL.createObjectURL(blob);
       link.setAttribute("href", url);
-      link.setAttribute("download", `Album2026_Missing_${userName?.replace(/\s+/g, '_') || 'collector'}.csv`);
+      link.setAttribute("download", `Album2026_${filterLabel}_${userName?.replace(/\s+/g, '_') || 'collector'}.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
     }
   };
 
-  const handleExportPDF = async () => {
+  const handleExportPDF = async (filterType: 'missing' | 'repeated' | 'all') => {
     const isSpanish = i18n.language.startsWith('es');
+    const filterLabel = isSpanish 
+      ? (filterType === 'missing' ? 'Faltantes' : (filterType === 'repeated' ? 'Repetidas' : 'Todas'))
+      : (filterType === 'missing' ? 'Missing' : (filterType === 'repeated' ? 'Repeated' : 'All'));
+
     const doc = new jsPDF();
     doc.setFontSize(20);
     doc.text(`ColeCollect - ${userName}`, 14, 20);
     doc.setFontSize(10);
-    doc.text(`${t('stats.progress')}: ${Math.round((totalStats.obtained / totalStats.total) * 100)}% (${totalStats.obtained}/${totalStats.total})`, 14, 30);
+    doc.text(`${t('stats.progress')}: ${Math.round((totalStats.obtained / totalStats.total) * 100)}% (${totalStats.obtained}/${totalStats.total}) | ${filterLabel}`, 14, 30);
     
-    const missingData = getMissingData();
-    const rows = missingData.map(item => [item.name, `${item.codes.join(' ')} (faltantes)`]);
+    const groupedData = getGroupedData(filterType);
+    const rows = groupedData.map(item => [item.name, item.codes.join(' ')]);
 
     autoTable(doc, {
-      head: [['Country / Team', 'Missing Stickers']],
+      head: [['Country / Team', `Stickers (${filterLabel})`]],
       body: rows,
       startY: 40,
       theme: 'grid',
@@ -722,7 +807,7 @@ const ExportActions = ({
     });
 
     if (Capacitor.isNativePlatform()) {
-      const filename = `Album2026_Missing_${userName?.replace(/\s+/g, '_') || 'collector'}.pdf`;
+      const filename = `Album2026_${filterLabel}_${userName?.replace(/\s+/g, '_') || 'collector'}.pdf`;
       try {
         const pdfOutput = doc.output('datauristring');
         const base64Data = pdfOutput.split(';base64,')[1];
@@ -734,8 +819,8 @@ const ExportActions = ({
         });
         
         await Share.share({
-          title: isSpanish ? 'Compartir PDF de Faltantes' : 'Share Missing Stickers PDF',
-          text: isSpanish ? 'Aquí tienes mi lista de estampas faltantes de ColeCollect.' : 'Here is my list of missing stickers from ColeCollect.',
+          title: isSpanish ? `Compartir PDF (${filterLabel})` : `Share PDF (${filterLabel})`,
+          text: isSpanish ? `Aquí tienes mi lista de estampas (${filterLabel}) de ColeCollect.` : `Here is my list of stickers (${filterLabel}) from ColeCollect.`,
           url: result.uri,
           dialogTitle: isSpanish ? 'Compartir con...' : 'Share with...'
         });
@@ -747,147 +832,149 @@ const ExportActions = ({
         );
       }
     } else {
-      doc.save(`Album2026_Missing_${userName?.replace(/\s+/g, '_') || 'collector'}.pdf`);
+      doc.save(`Album2026_${filterLabel}_${userName?.replace(/\s+/g, '_') || 'collector'}.pdf`);
     }
   };
 
-  const handleExportText = async () => {
-    let text = `ColeCollect- Lista\n`;
+  const handleExportText = async (filterType: 'missing' | 'repeated' | 'all') => {
+    const isSpanish = i18n.language.startsWith('es');
+    const filterLabel = isSpanish 
+      ? (filterType === 'missing' ? 'Faltantes' : (filterType === 'repeated' ? 'Repetidas' : 'Todas'))
+      : (filterType === 'missing' ? 'Missing' : (filterType === 'repeated' ? 'Repeated' : 'All'));
+
+    let text = `ColeCollect - Lista (${filterLabel})\n`;
     text += `${activeAlbum?.name || 'Álbum Mundial 2026'}\n\n`;
 
-    // --- Me Faltan ---
-    text += `Me faltan\n`;
+    if (filterType === 'missing' || filterType === 'all') {
+      text += isSpanish ? `--- ME FALTAN ---\n` : `--- MISSING STICKERS ---\n`;
 
-    // FWC Specials
-    const fwcMissingMap: Record<string, number[]> = {
-      '🏆': [],
-      '🌎': [],
-      '📜': []
-    };
+      const fwcMissingMap: Record<string, number[]> = {
+        '🏆': [],
+        '🌎': [],
+        '📜': []
+      };
 
-    SPECIALS.forEach(c => {
-      const isMissing = !inventory[c] || inventory[c].status === 'missing';
-      if (isMissing) {
-        const { cat, val } = getFWCCat(c);
-        fwcMissingMap[cat].push(typeof val === 'string' ? 0 : val);
-      }
-    });
-
-    ['🏆', '🌎', '📜'].forEach(emoji => {
-      const arr = fwcMissingMap[emoji];
-      if (arr.length > 0) {
-        arr.sort((a, b) => a - b);
-        const strValues = arr.map(v => v === 0 ? '00' : String(v)).join(', ');
-        text += `FWC ${emoji}: ${strValues}\n`;
-      }
-    });
-
-    // TEAMS
-    TEAMS.forEach(team => {
-      const missingNums: number[] = [];
-      for (let i = 1; i <= 20; i++) {
-        const c = `${team}${i}`;
-        if (!inventory[c] || inventory[c].status === 'missing') {
-          missingNums.push(i);
+      SPECIALS.forEach(c => {
+        const isMissing = !inventory[c] || inventory[c].status === 'missing';
+        if (isMissing) {
+          const { cat, val } = getFWCCat(c);
+          fwcMissingMap[cat].push(typeof val === 'string' ? 0 : val);
         }
-      }
-      if (missingNums.length > 0) {
-        const flag = TEAM_EMOJIS[team] || '';
-        text += `${team} ${flag}: ${missingNums.sort((a, b) => a - b).join(', ')}\n`;
-      }
-    });
+      });
 
-    // COCA COLA
-    const ccMissing: number[] = [];
-    albumCC.forEach(c => {
-      if (!inventory[c] || inventory[c].status === 'missing') {
-        const num = parseInt(c.replace('CC', '')) || 0;
-        ccMissing.push(num);
+      ['🏆', '🌎', '📜'].forEach(emoji => {
+        const arr = fwcMissingMap[emoji];
+        if (arr.length > 0) {
+          arr.sort((a, b) => a - b);
+          const strValues = arr.map(v => v === 0 ? '00' : String(v)).join(', ');
+          text += `FWC ${emoji}: ${strValues}\n`;
+        }
+      });
+
+      TEAMS.forEach(team => {
+        const missingNums: number[] = [];
+        for (let i = 1; i <= 20; i++) {
+          const c = `${team}${i}`;
+          if (!inventory[c] || inventory[c].status === 'missing') {
+            missingNums.push(i);
+          }
+        }
+        if (missingNums.length > 0) {
+          const flag = TEAM_EMOJIS[team] || '';
+          text += `${team} ${flag}: ${missingNums.sort((a, b) => a - b).join(', ')}\n`;
+        }
+      });
+
+      const ccMissing: number[] = [];
+      albumCC.forEach(c => {
+        if (!inventory[c] || inventory[c].status === 'missing') {
+          const num = parseInt(c.replace('CC', '')) || 0;
+          ccMissing.push(num);
+        }
+      });
+      if (ccMissing.length > 0) {
+        text += `CC 🥤: ${ccMissing.sort((a, b) => a - b).join(', ')}\n`;
       }
-    });
-    if (ccMissing.length > 0) {
-      text += `CC 🥤: ${ccMissing.sort((a, b) => a - b).join(', ')}\n`;
+
+      text += `\n`;
     }
 
-    text += `\n`;
+    if (filterType === 'repeated' || filterType === 'all') {
+      text += isSpanish ? `--- REPETIDAS ---\n` : `--- REPEATED STICKERS ---\n`;
 
-    // --- Repetidas ---
-    text += `Repetidas\n`;
+      const fwcRepeatedMap: Record<string, string[]> = {
+        '🏆': [],
+        '🌎': [],
+        '📜': []
+      };
 
-    // FWC Specials repeated
-    const fwcRepeatedMap: Record<string, string[]> = {
-      '🏆': [],
-      '🌎': [],
-      '📜': []
-    };
-
-    SPECIALS.forEach(c => {
-      const isRepeated = inventory[c]?.status === 'repeated';
-      if (isRepeated) {
-        const { cat, val } = getFWCCat(c);
-        const count = inventory[c].count || 2;
-        const repeats = Math.max(1, count - 1);
-        for (let r = 0; r < repeats; r++) {
-          fwcRepeatedMap[cat].push(String(val));
-        }
-      }
-    });
-
-    ['🏆', '🌎', '📜'].forEach(emoji => {
-      const arr = fwcRepeatedMap[emoji];
-      if (arr.length > 0) {
-        arr.sort((a, b) => {
-          const valA = a === '00' ? 0 : parseInt(a);
-          const valB = b === '00' ? 0 : parseInt(b);
-          return valA - valB;
-        });
-        text += `FWC ${emoji}: ${arr.join(', ')}\n`;
-      }
-    });
-
-    // TEAMS repeated
-    TEAMS.forEach(team => {
-      const repeatedNums: number[] = [];
-      for (let i = 1; i <= 20; i++) {
-        const c = `${team}${i}`;
-        if (inventory[c]?.status === 'repeated') {
+      SPECIALS.forEach(c => {
+        const isRepeated = inventory[c]?.status === 'repeated';
+        if (isRepeated) {
+          const { cat, val } = getFWCCat(c);
           const count = inventory[c].count || 2;
           const repeats = Math.max(1, count - 1);
           for (let r = 0; r < repeats; r++) {
-            repeatedNums.push(i);
+            fwcRepeatedMap[cat].push(String(val));
           }
         }
-      }
-      if (repeatedNums.length > 0) {
-        repeatedNums.sort((a, b) => a - b);
-        const flag = TEAM_EMOJIS[team] || '';
-        text += `${team} ${flag}: ${repeatedNums.join(', ')}\n`;
-      }
-    });
+      });
 
-    // COCA COLA repeated
-    const ccRepeated: number[] = [];
-    albumCC.forEach(c => {
-      if (inventory[c]?.status === 'repeated') {
-        const num = parseInt(c.replace('CC', '')) || 0;
-        const count = inventory[c].count || 2;
-        const repeats = Math.max(1, count - 1);
-        for (let r = 0; r < repeats; r++) {
-          ccRepeated.push(num);
+      ['🏆', '🌎', '📜'].forEach(emoji => {
+        const arr = fwcRepeatedMap[emoji];
+        if (arr.length > 0) {
+          arr.sort((a, b) => {
+            const valA = a === '00' ? 0 : parseInt(a);
+            const valB = b === '00' ? 0 : parseInt(b);
+            return valA - valB;
+          });
+          text += `FWC ${emoji}: ${arr.join(', ')}\n`;
         }
+      });
+
+      TEAMS.forEach(team => {
+        const repeatedNums: number[] = [];
+        for (let i = 1; i <= 20; i++) {
+          const c = `${team}${i}`;
+          if (inventory[c]?.status === 'repeated') {
+            const count = inventory[c].count || 2;
+            const repeats = Math.max(1, count - 1);
+            for (let r = 0; r < repeats; r++) {
+              repeatedNums.push(i);
+            }
+          }
+        }
+        if (repeatedNums.length > 0) {
+          repeatedNums.sort((a, b) => a - b);
+          const flag = TEAM_EMOJIS[team] || '';
+          text += `${team} ${flag}: ${repeatedNums.join(', ')}\n`;
+        }
+      });
+
+      const ccRepeated: number[] = [];
+      albumCC.forEach(c => {
+        if (inventory[c]?.status === 'repeated') {
+          const num = parseInt(c.replace('CC', '')) || 0;
+          const count = inventory[c].count || 2;
+          const repeats = Math.max(1, count - 1);
+          for (let r = 0; r < repeats; r++) {
+            ccRepeated.push(num);
+          }
+        }
+      });
+      if (ccRepeated.length > 0) {
+        text += `CC 🥤: ${ccRepeated.sort((a, b) => a - b).join(', ')}\n`;
       }
-    });
-    if (ccRepeated.length > 0) {
-      text += `CC 🥤: ${ccRepeated.sort((a, b) => a - b).join(', ')}\n`;
+
+      text += `\n`;
     }
 
-    text += `\nDescarga la app\nhttps://play.google.com/store/apps/details?id=com.colediverti.album2026\n`;
+    text += `Descarga la app\nhttps://play.google.com/store/apps/details?id=com.colediverti.album2026\n`;
 
-    const isSpanish = i18n.language.startsWith('es');
     if (Capacitor.isNativePlatform()) {
       try {
         await Share.share({
-          title: isSpanish ? 'Lista de Estampas de ColeCollect' : 'ColeCollect Sticker List',
+          title: isSpanish ? `Lista de Estampas (${filterLabel})` : `Sticker List (${filterLabel})`,
           text: text,
           dialogTitle: isSpanish ? 'Compartir lista por...' : 'Share list via...'
         });
@@ -906,24 +993,30 @@ const ExportActions = ({
     }
   };
 
-  const handleExportImage = async () => {
+  const handleExportImage = async (filterType: 'missing' | 'repeated' | 'all') => {
     if (!printRef.current) return;
     setExporting('image');
+    setExportFilter(filterType);
+    
+    // We must wait a brief moments for the hidden container to be drawn and state applied
+    await new Promise(resolve => setTimeout(resolve, 300));
+
     const isSpanish = i18n.language.startsWith('es');
+    const filterLabel = isSpanish 
+      ? (filterType === 'missing' ? 'Faltantes' : (filterType === 'repeated' ? 'Repetidas' : 'Todas'))
+      : (filterType === 'missing' ? 'Missing' : (filterType === 'repeated' ? 'Repeated' : 'All'));
+
     try {
       const canvas = await html2canvas(printRef.current, {
         backgroundColor: '#0a0a0b',
         scale: 2,
         logging: false,
-        useCORS: true,
-        onclone: (doc) => {
-          // Safety net
-        }
+        useCORS: true
       });
       const image = canvas.toDataURL("image/png");
       if (Capacitor.isNativePlatform()) {
         const base64Data = image.split(';base64,')[1];
-        const filename = `Album2026_${userName?.replace(/\s+/g, '_') || 'collector'}.png`;
+        const filename = `Album2026_${filterLabel}_${userName?.replace(/\s+/g, '_') || 'collector'}.png`;
         
         const result = await Filesystem.writeFile({
           path: filename,
@@ -932,15 +1025,15 @@ const ExportActions = ({
         });
         
         await Share.share({
-          title: isSpanish ? 'Compartir Imagen de Álbum' : 'Share Album Image',
-          text: isSpanish ? '¡Mira el progreso de mi álbum en ColeCollect!' : 'Look at my album progress on ColeCollect!',
+          title: isSpanish ? `Compartir Imagen de Álbum (${filterLabel})` : `Share Album Image (${filterLabel})`,
+          text: isSpanish ? `¡Mira el progreso de mi álbum en ColeCollect (${filterLabel})!` : `Look at my album progress on ColeCollect (${filterLabel})!`,
           url: result.uri,
           dialogTitle: isSpanish ? 'Compartir con...' : 'Share with...'
         });
       } else {
         const link = document.createElement("a");
         link.href = image;
-        link.download = `Album2026_${userName?.replace(/\s+/g, '_') || 'collector'}.png`;
+        link.download = `Album2026_${filterLabel}_${userName?.replace(/\s+/g, '_') || 'collector'}.png`;
         link.click();
       }
     } catch (e: any) {
@@ -954,7 +1047,7 @@ const ExportActions = ({
     }
   };
 
-  const wrapHandler = async (handler: () => void | Promise<void>, type: string) => {
+  const handleOpenFilterModal = (format: 'csv' | 'pdf' | 'image' | 'text') => {
     if (!isPremium && !trialActive) {
       onUpgradeRequest();
       return;
@@ -966,22 +1059,42 @@ const ExportActions = ({
         onUpgradeRequest();
         return;
       }
-      
-      const success = await onExportPerformed(type);
+    }
+
+    setActiveFormat(format);
+    setShowFilterModal(true);
+  };
+
+  const handleConfirmExport = async (filterType: 'missing' | 'repeated' | 'all') => {
+    setShowFilterModal(false);
+    if (!activeFormat) return;
+
+    if (trialActive && !profile?.isPremium) {
+      const success = await onExportPerformed(activeFormat);
       if (!success) return;
     }
 
-    await handler();
+    if (activeFormat === 'csv') {
+      await handleExportCSV(filterType);
+    } else if (activeFormat === 'pdf') {
+      await handleExportPDF(filterType);
+    } else if (activeFormat === 'image') {
+      await handleExportImage(filterType);
+    } else if (activeFormat === 'text') {
+      await handleExportText(filterType);
+    }
+
+    setActiveFormat(null);
   };
 
-  const missingGroups = getMissingData();
+  const visibleGroups = getGroupedData(exportFilter);
 
   return (
     <>
       <div className="flex flex-wrap gap-2 mb-4">
         <button 
-          onClick={() => wrapHandler(handleExportCSV, 'csv')}
-          className="flex-1 min-w-[120px] flex items-center justify-center gap-2 bg-white/5 border border-white/10 hover:border-white/10 rounded-xl py-3 px-4 text-xs font-bold text-gray-300 hover:text-white transition-all group"
+          onClick={() => handleOpenFilterModal('csv')}
+          className="flex-1 min-w-[120px] flex items-center justify-center gap-2 bg-white/5 border border-white/10 hover:border-white/10 rounded-xl py-3 px-4 text-xs font-bold text-gray-300 hover:text-white transition-all group cursor-pointer"
           style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.1)' }}
         >
           <FileSpreadsheet size={16} className="text-fifa-gold" />
@@ -989,8 +1102,8 @@ const ExportActions = ({
           {(!isPremium && !trialActive) && <Lock size={10} className="text-gray-600 ml-1" />}
         </button>
         <button 
-          onClick={() => wrapHandler(handleExportPDF, 'pdf')}
-          className="flex-1 min-w-[120px] flex items-center justify-center gap-2 bg-white/5 border border-white/10 hover:border-white/10 rounded-xl py-3 px-4 text-xs font-bold text-gray-300 hover:text-white transition-all group"
+          onClick={() => handleOpenFilterModal('pdf')}
+          className="flex-1 min-w-[120px] flex items-center justify-center gap-2 bg-white/5 border border-white/10 hover:border-white/10 rounded-xl py-3 px-4 text-xs font-bold text-gray-300 hover:text-white transition-all group cursor-pointer"
           style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.1)' }}
         >
           <FileText size={16} className="text-fifa-gold" />
@@ -998,9 +1111,9 @@ const ExportActions = ({
           {(!isPremium && !trialActive) && <Lock size={10} className="text-gray-600 ml-1" />}
         </button>
         <button 
-          onClick={() => wrapHandler(handleExportImage, 'image')}
+          onClick={() => handleOpenFilterModal('image')}
           disabled={exporting === 'image'}
-          className="flex-1 min-w-[120px] flex items-center justify-center gap-2 bg-white/5 border border-white/10 hover:border-white/10 rounded-xl py-3 px-4 text-xs font-bold text-gray-300 hover:text-white transition-all group disabled:opacity-50"
+          className="flex-1 min-w-[120px] flex items-center justify-center gap-2 bg-white/5 border border-white/10 hover:border-white/10 rounded-xl py-3 px-4 text-xs font-bold text-gray-300 hover:text-white transition-all group disabled:opacity-50 cursor-pointer"
           style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.1)' }}
         >
           {exporting === 'image' ? (
@@ -1012,8 +1125,8 @@ const ExportActions = ({
           {(!isPremium && !trialActive) && <Lock size={10} className="text-gray-600 ml-1" />}
         </button>
         <button 
-          onClick={() => wrapHandler(handleExportText, 'text')}
-          className="flex-1 min-w-[120px] flex items-center justify-center gap-2 bg-white/5 border border-white/10 hover:border-white/10 rounded-xl py-3 px-4 text-xs font-bold text-gray-300 hover:text-white transition-all group"
+          onClick={() => handleOpenFilterModal('text')}
+          className="flex-1 min-w-[120px] flex items-center justify-center gap-2 bg-white/5 border border-white/10 hover:border-white/10 rounded-xl py-3 px-4 text-xs font-bold text-gray-300 hover:text-white transition-all group cursor-pointer"
           style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.1)' }}
         >
           <Copy size={16} className="text-fifa-gold" />
@@ -1032,6 +1145,112 @@ const ExportActions = ({
           </span>
         </div>
       )}
+
+      {/* Filter Choice Modal */}
+      <AnimatePresence>
+        {showFilterModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowFilterModal(false)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              id="export-filter-modal-backdrop"
+            />
+            
+            <motion.div
+              initial={{ scale: 0.95, y: 15, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.95, y: 15, opacity: 0 }}
+              className="bg-[#18181b] border border-white/10 rounded-3xl p-6 w-full max-w-md relative shadow-2xl overflow-hidden z-10"
+              style={{ backgroundColor: '#18181b', borderColor: 'rgba(255, 255, 255, 0.1)' }}
+              id="export-filter-modal-container"
+            >
+              <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-[#D4AF37] to-transparent" />
+
+              <h3 className="text-lg font-black text-white mb-2 tracking-tight flex items-center gap-2">
+                🏆 {i18n.language.startsWith('es') ? 'Exportar Álbum/Láminas' : 'Export Album/Stickers'}
+              </h3>
+              <p className="text-xs text-gray-400 mb-6 leading-relaxed">
+                {i18n.language.startsWith('es') 
+                  ? '¿Qué láminas deseas exportar?' 
+                  : 'Which stickers would you like to export?'}
+              </p>
+
+              <div className="space-y-3 mb-6">
+                <button
+                  type="button"
+                  onClick={() => handleConfirmExport('missing')}
+                  className="w-full text-left p-4 rounded-2xl border border-white/5 hover:bg-white/10 hover:border-[#D4AF37]/30 transition-all flex items-center gap-4 group cursor-pointer"
+                  style={{ backgroundColor: 'rgba(255,255,255,0.03)', borderColor: 'rgba(255,255,255,0.05)' }}
+                >
+                  <div className="w-10 h-10 rounded-xl bg-orange-500/10 flex items-center justify-center text-orange-400 group-hover:scale-105 transition-transform text-lg">
+                    ❌
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+                      {i18n.language.startsWith('es') ? 'Estampas Faltantes' : 'Missing Stickers'}
+                    </h4>
+                    <p className="text-[10px] text-gray-500 font-bold mt-0.5 uppercase tracking-widest">
+                      {i18n.language.startsWith('es') ? 'Solo lo que te falta' : 'Only your missing slots'}
+                    </p>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleConfirmExport('repeated')}
+                  className="w-full text-left p-4 rounded-2xl border border-white/5 hover:bg-white/10 hover:border-[#D4AF37]/30 transition-all flex items-center gap-4 group cursor-pointer"
+                  style={{ backgroundColor: 'rgba(255,255,255,0.03)', borderColor: 'rgba(255,255,255,0.05)' }}
+                >
+                  <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-400 group-hover:scale-105 transition-transform text-lg">
+                    🔁
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+                      {i18n.language.startsWith('es') ? 'Estampas Repetidas' : 'Repeated Stickers'}
+                    </h4>
+                    <p className="text-[10px] text-gray-500 font-bold mt-0.5 uppercase tracking-widest">
+                      {i18n.language.startsWith('es') ? 'Tus barajitas duplicadas' : 'Your duplicate stickers'}
+                    </p>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleConfirmExport('all')}
+                  className="w-full text-left p-4 rounded-2xl border border-white/5 hover:bg-white/10 hover:border-[#D4AF37]/30 transition-all flex items-center gap-4 group cursor-pointer"
+                  style={{ backgroundColor: 'rgba(255,255,255,0.03)', borderColor: 'rgba(255,255,255,0.05)' }}
+                >
+                  <div className="w-10 h-10 rounded-xl bg-[#D4AF37]/10 flex items-center justify-center text-[#D4AF37] group-hover:scale-105 transition-transform text-lg">
+                    📊
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+                      {i18n.language.startsWith('es') ? 'Todas las Estampas' : 'All Stickers'}
+                    </h4>
+                    <p className="text-[10px] text-gray-400 font-bold mt-0.5 uppercase tracking-widest">
+                      {i18n.language.startsWith('es') ? 'Inventario completo con estados' : 'Full inventory with status tags'}
+                    </p>
+                  </div>
+                </button>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowFilterModal(false)}
+                  className="w-full py-3 bg-white/5 border border-white/10 hover:bg-white/10 transition-colors rounded-xl text-xs font-bold text-gray-400 cursor-pointer"
+                  style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.1)' }}
+                >
+                  {i18n.language.startsWith('es') ? 'Cancelar' : 'Cancel'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Hidden Export Template for Image - Using Hex Colors exclusively to avoid oklch issues */}
       <div className="fixed -left-[2000px] top-0 pointer-events-none">
@@ -1060,17 +1279,19 @@ const ExportActions = ({
 
           <div style={{ marginTop: '24px' }}>
             <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#D4AF37', textTransform: 'uppercase', letterSpacing: '1px', borderBottom: '1px solid rgba(212, 175, 55, 0.2)', paddingBottom: '8px', marginBottom: '16px' }}>
-              Missing Stickers by Team
+              {i18n.language.startsWith('es') 
+                ? (exportFilter === 'missing' ? 'Estampas Faltantes por Selección' : (exportFilter === 'repeated' ? 'Estampas Repetidas por Selección' : 'Todas las Estampas por Selección'))
+                : (exportFilter === 'missing' ? 'Missing Stickers by Team' : (exportFilter === 'repeated' ? 'Repeated Stickers by Team' : 'All Stickers by Team'))}
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {missingGroups.map((group, idx) => (
+              {visibleGroups.map((group, idx) => (
                 <div key={idx} style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '8px' }}>
                   <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#ffffff', width: '140px', flexShrink: 0 }}>{group.name}:</span>
                   <span style={{ fontSize: '12px', color: '#aaaaaa', lineHeight: '1.4' }}>{group.codes.join(' ')}</span>
                 </div>
               ))}
-              {missingGroups.length === 0 && (
-                <p style={{ textAlign: 'center', fontSize: '14px', fontWeight: 'bold', color: '#4ADE80', margin: '20px 0' }}>ALBUM COMPLETE! ⚽️🏆</p>
+              {visibleGroups.length === 0 && (
+                <p style={{ textAlign: 'center', fontSize: '14px', fontWeight: 'bold', color: '#4ADE80', margin: '20px 0' }}>LIST EMPTY! ⚽️🏆</p>
               )}
             </div>
           </div>
@@ -2541,6 +2762,10 @@ const CommunityView = ({
   const [confirmingMsgId, setConfirmingMsgId] = useState<string | null>(null);
   const [messages, setMessages] = useState<any[]>([]);
   const [lastSwapped, setLastSwapped] = useState<{give: string[], get: string[]} | null>(null);
+  
+  const [showQRModal, setShowQRModal] = useState(false);
+  const [generatedQRString, setGeneratedQRString] = useState("");
+  const [copiedQRLink, setCopiedQRLink] = useState(false);
 
   useEffect(() => {
     loadFriends();
@@ -2718,24 +2943,56 @@ const CommunityView = ({
 
   return (
     <div className="space-y-6">
-      <div className="fifa-card p-6">
-        <h2 className="font-display font-bold text-xl mb-4 flex items-center gap-2">
-          <Users className="text-fifa-gold" /> {t('bazar.title')}
-        </h2>
-        <div className="flex gap-2">
-          <input 
-            type="text" 
-            placeholder={t('bazar.search_placeholder')}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2 focus:outline-none focus:border-fifa-gold"
-          />
-          <button 
-            onClick={handleSearch}
-            className="bg-fifa-gold text-black px-6 py-2 rounded-xl font-bold flex items-center gap-2"
-          >
-            <Search size={18} /> {t('bazar.search_button')}
-          </button>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Connection & Search Card */}
+        <div className="fifa-card p-6 flex flex-col justify-between">
+          <div>
+            <h2 className="font-display font-bold text-xl mb-4 flex items-center gap-2">
+              <Users className="text-fifa-gold" /> {t('bazar.title')}
+            </h2>
+            <div className="flex gap-2">
+              <input 
+                type="text" 
+                placeholder={t('bazar.search_placeholder')}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2 focus:outline-none focus:border-fifa-gold min-w-0"
+              />
+              <button 
+                onClick={handleSearch}
+                className="bg-fifa-gold text-black px-4 sm:px-6 py-2 rounded-xl font-bold flex items-center justify-center gap-2 shrink-0 transition-all hover:bg-yellow-400"
+              >
+                <Search size={18} className="shrink-0" /> 
+                <span className="hidden sm:inline">{t('bazar.search_button')}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Universal QR Code Card */}
+        <div className="fifa-card p-6 flex flex-col justify-between">
+          <div>
+            <h2 className="font-display font-bold text-xl mb-2 flex items-center gap-2 text-white">
+              <QrCode className="text-fifa-gold shrink-0" size={20} />
+              <span>{t('bazar.qr_button_title')}</span>
+            </h2>
+            <p className="text-xs text-gray-400 leading-normal mb-4">
+              {t('bazar.qr_button_subtitle')}
+            </p>
+          </div>
+          <div>
+            <button
+              onClick={() => {
+                const qrVal = encodeInventoryToQRString(userInventory, activeAlbum?.cocaColaCount || 14);
+                setGeneratedQRString(qrVal);
+                setShowQRModal(true);
+              }}
+              className="w-full bg-gradient-to-r from-[#17181c] to-[#202126] hover:from-[#202126] hover:to-[#2b2d35] text-white border border-white/10 py-3 rounded-xl font-display font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2.5 shadow-lg active:scale-[0.98] transition-all"
+            >
+              <QrCode size={16} className="text-fifa-gold" />
+              <span>{t('bazar.qr_button_title')}</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -2979,6 +3236,81 @@ const CommunityView = ({
           )}
         </div>
       </div>
+
+      {/* QR Code Modal */}
+      <AnimatePresence>
+        {showQRModal && (
+          <div className="fixed inset-0 z-[190] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/80 backdrop-blur-md"
+              onClick={() => setShowQRModal(false)}
+            />
+            
+            <motion.div 
+              initial={{ scale: 0.95, y: 15, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.95, y: 15, opacity: 0 }}
+              transition={{ type: "spring", duration: 0.4 }}
+              className="relative w-full max-w-sm bg-[#111116] border border-white/10 rounded-[2.2rem] p-6 text-center overflow-hidden shadow-2xl z-10"
+            >
+              <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-fifa-gold via-yellow-500 to-fifa-gold" />
+              
+              <button 
+                onClick={() => setShowQRModal(false)}
+                className="absolute right-4 top-4 text-gray-500 hover:text-white transition-colors"
+              >
+                <X size={18} />
+              </button>
+
+              <div className="w-12 h-12 bg-fifa-gold/10 border border-fifa-gold/20 rounded-2xl flex items-center justify-center mx-auto mb-4 mt-2">
+                <QrCode className="text-fifa-gold" size={24} />
+              </div>
+
+              <h3 className="text-lg font-display font-bold text-white tracking-tight mb-2">
+                {t('bazar.qr_modal_title')}
+              </h3>
+              
+              <p className="text-xs text-gray-400 leading-normal px-2 mb-6">
+                {t('bazar.qr_modal_description')}
+              </p>
+
+              <div className="w-64 h-64 mx-auto p-4 bg-white rounded-[1.8rem] flex items-center justify-center shadow-lg shadow-black/40 mb-6 border border-white/5">
+                <QRCodeSVG 
+                  value={generatedQRString} 
+                  size={220} 
+                  level="M" 
+                  bgColor="#ffffff"
+                  fgColor="#000000"
+                />
+              </div>
+
+              <div className="space-y-2.5">
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(generatedQRString);
+                    setCopiedQRLink(true);
+                    setTimeout(() => setCopiedQRLink(false), 2000);
+                  }}
+                  className="w-full py-2.5 bg-white/5 hover:bg-white/10 text-gray-300 font-display font-medium text-xs rounded-xl border border-white/5 transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
+                >
+                  <Copy size={14} className="text-fifa-gold" />
+                  <span>{copiedQRLink ? t('bazar.copied') : t('bazar.qr_copy_text')}</span>
+                </button>
+
+                <button
+                  onClick={() => setShowQRModal(false)}
+                  className="w-full py-3.5 bg-gradient-to-r from-fifa-gold to-yellow-500 hover:from-yellow-400 hover:to-yellow-500 text-black font-display font-black text-xs uppercase tracking-widest rounded-xl transition-all border border-yellow-500/20 active:scale-[0.98] shadow-lg shadow-fifa-gold/15"
+                >
+                  {t('bazar.qr_close')}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
@@ -3051,10 +3383,21 @@ export default function App() {
     passwordChangeEnabled: true,
     announcementEnabled: false,
     announcementText: "",
+    announcementTextEs: "",
+    announcementTextEn: "",
     maintenanceModeEnabled: false
   });
+
+  const currentAnnouncementText = useMemo(() => {
+    if (isEs) {
+      return globalSettings.announcementTextEs || globalSettings.announcementText || "";
+    }
+    return globalSettings.announcementTextEn || globalSettings.announcementText || "";
+  }, [isEs, globalSettings.announcementTextEs, globalSettings.announcementTextEn, globalSettings.announcementText]);
   const [showAdminDashboard, setShowAdminDashboard] = useState(false);
   const [adminAnnouncementMessage, setAdminAnnouncementMessage] = useState("");
+  const [adminAnnouncementMessageEs, setAdminAnnouncementMessageEs] = useState("");
+  const [adminAnnouncementMessageEn, setAdminAnnouncementMessageEn] = useState("");
   const [saveAnnounceLoading, setSaveAnnounceLoading] = useState(false);
   const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
   const [announcementHasBeenShown, setAnnouncementHasBeenShown] = useState(false);
@@ -3096,6 +3439,31 @@ export default function App() {
     return localStorage.getItem('universalRepeats') === 'true';
   });
 
+  const updateUserProfileToggle = async (key: string, value: boolean) => {
+    if (!user) return;
+    try {
+      await albumService.saveUserProfile(user.uid, {
+        [key]: value
+      });
+    } catch (err) {
+      console.error(`Error saving user toggle ${key}`, err);
+    }
+  };
+
+  useEffect(() => {
+    if (userProfile) {
+      if (userProfile.includeCocaColaInStats !== undefined) {
+        setIncludeCocaColaInStats(userProfile.includeCocaColaInStats);
+      }
+      if (userProfile.hideRPGWidget !== undefined) {
+        setHideRPGWidget(userProfile.hideRPGWidget);
+      }
+      if (userProfile.universalRepeats !== undefined) {
+        setUniversalRepeats(userProfile.universalRepeats);
+      }
+    }
+  }, [userProfile]);
+
   const inventory = useMemo(() => {
     if (!universalRepeats) return rawInventory;
     
@@ -3135,11 +3503,13 @@ export default function App() {
 
   useEffect(() => {
     const fetchSettings = async () => {
-      const settings = await albumService.getGlobalSettings();
-      setGlobalSettings(settings as any);
+      const settings: any = (await albumService.getGlobalSettings()) || {};
+      setGlobalSettings(settings);
       if (settings?.announcementText) {
         setAdminAnnouncementMessage(settings.announcementText);
       }
+      setAdminAnnouncementMessageEs(settings?.announcementTextEs || settings?.announcementText || "");
+      setAdminAnnouncementMessageEn(settings?.announcementTextEn || settings?.announcementText || "");
     };
     fetchSettings();
   }, []);
@@ -3185,11 +3555,11 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (globalSettings.announcementEnabled && globalSettings.announcementText && !announcementHasBeenShown) {
+    if (globalSettings.announcementEnabled && currentAnnouncementText && !announcementHasBeenShown) {
       setShowAnnouncementModal(true);
       setAnnouncementHasBeenShown(true);
     }
-  }, [globalSettings, announcementHasBeenShown]);
+  }, [globalSettings.announcementEnabled, currentAnnouncementText, announcementHasBeenShown]);
 
   const isPremium = useMemo(() => {
     if (adminPremiumOverride) return true;
@@ -3370,30 +3740,38 @@ export default function App() {
 
   useEffect(() => {
     if (user) {
-      loadAlbums();
+      setIsLoading(true);
+      const unsub = albumService.subscribeToAlbums(user.uid, (data) => {
+        setAlbums(data || []);
+        setIsLoading(false);
+      });
+      return unsub;
     } else {
+      setAlbums([]);
       setIsLoading(false);
     }
   }, [user]);
 
   const loadAlbums = async () => {
-    if (!user) {
-      setIsLoading(false);
-      return;
-    }
-    setIsLoading(true);
+    if (!user) return;
     try {
       const data = await albumService.getAlbums(user.uid);
       setAlbums(data || []);
-      if (data && data.length > 0 && !activeAlbum) {
-        setActiveAlbum(data[0]);
-      }
     } catch (e) {
-      console.error("Error loading albums", e);
-    } finally {
-      setIsLoading(false);
+      console.error(e);
     }
   };
+
+  useEffect(() => {
+    if (activeAlbum && albums.length > 0) {
+      const currentFromStream = albums.find(a => a.id === activeAlbum.id);
+      if (currentFromStream && JSON.stringify(currentFromStream) !== JSON.stringify(activeAlbum)) {
+        setActiveAlbum(currentFromStream);
+      }
+    } else if (!activeAlbum && albums.length > 0) {
+      setActiveAlbum(albums[0]);
+    }
+  }, [albums, activeAlbum]);
 
   useEffect(() => {
     if (activeAlbum) {
@@ -3603,6 +3981,7 @@ export default function App() {
     setUniversalRepeats(enabled);
     localStorage.setItem('universalRepeats', enabled ? 'true' : 'false');
     hapticFeedback(ImpactStyle.Medium);
+    updateUserProfileToggle('universalRepeats', enabled);
     
     if (enabled && user && albums.length > 0) {
       try {
@@ -3995,7 +4374,7 @@ export default function App() {
       >
         <div className="w-24 h-24 mx-auto mb-6 relative">
           <img 
-            src="https://i.postimg.cc/gkYK9kXr/Logo-Album-2026.png" 
+            src={logoImg} 
             className="w-full h-full object-contain drop-shadow-[0_0_20px_rgba(212,175,55,0.3)]" 
             alt="ColeCollect Logo" 
           />
@@ -4249,7 +4628,7 @@ export default function App() {
     <div className="min-h-screen pb-20 selection:bg-fifa-gold selection:text-black w-full overflow-x-hidden">
       <AnimatePresence>
         {/* User announcement modal shown when opening */}
-        {showAnnouncementModal && globalSettings.announcementEnabled && globalSettings.announcementText && (
+        {showAnnouncementModal && globalSettings.announcementEnabled && currentAnnouncementText && (
           <div className="fixed inset-0 z-[190] flex items-center justify-center p-4">
             <motion.div 
               initial={{ opacity: 0 }}
@@ -4276,9 +4655,9 @@ export default function App() {
                 <h3 className="text-xl font-display font-black text-white tracking-tight mb-3">
                   {isEs ? 'Anuncio Importante' : 'Important Announcement'}
                 </h3>
-                
+                 
                 <div className="w-full bg-white/[0.03] border border-white/5 rounded-2xl p-5 mb-6 text-sm text-gray-300 leading-relaxed text-left max-h-[250px] overflow-y-auto font-sans whitespace-pre-wrap">
-                  {globalSettings.announcementText}
+                  {currentAnnouncementText}
                 </div>
 
                 <button
@@ -4468,21 +4847,48 @@ export default function App() {
                         </button>
                       </div>
 
-                      <div className="space-y-2.5 pt-2 border-t border-white/5">
-                        <textarea
-                          value={adminAnnouncementMessage}
-                          onChange={(e) => setAdminAnnouncementMessage(e.target.value)}
-                          placeholder={isEs ? 'Escribe tu anuncio público aquí...' : 'Write the public notification context here...'}
-                          className="w-full h-24 bg-black/60 border border-white/10 rounded-2xl p-3 text-xs text-white focus:outline-none focus:border-fifa-gold/40 transition-colors resize-none placeholder-gray-600 font-sans leading-relaxed"
-                        />
+                      <div className="space-y-4 pt-2 border-t border-white/5">
+                        <div className="space-y-1">
+                          <label className="text-[10px] uppercase tracking-wider font-bold text-gray-500 block">
+                            {isEs ? 'Mensaje en Español (ES)' : 'Message in Spanish (ES)'}
+                          </label>
+                          <textarea
+                            value={adminAnnouncementMessageEs}
+                            onChange={(e) => setAdminAnnouncementMessageEs(e.target.value)}
+                            placeholder={isEs ? 'Escribe aquí el anuncio en español...' : 'Write the Spanish announcement text here...'}
+                            className="w-full h-20 bg-black/60 border border-white/10 rounded-2xl p-3 text-xs text-white focus:outline-none focus:border-fifa-gold/40 transition-colors resize-none placeholder-gray-600 font-sans leading-relaxed"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[10px] uppercase tracking-wider font-bold text-gray-500 block">
+                            {isEs ? 'Mensaje en Inglés (EN)' : 'Message in English (EN)'}
+                          </label>
+                          <textarea
+                            value={adminAnnouncementMessageEn}
+                            onChange={(e) => setAdminAnnouncementMessageEn(e.target.value)}
+                            placeholder={isEs ? 'Escribe aquí el anuncio en inglés...' : 'Write the English announcement text here...'}
+                            className="w-full h-20 bg-black/60 border border-white/10 rounded-2xl p-3 text-xs text-white focus:outline-none focus:border-fifa-gold/40 transition-colors resize-none placeholder-gray-600 font-sans leading-relaxed"
+                          />
+                        </div>
+
                         <div className="flex justify-end">
                           <button
                             onClick={async () => {
                               try {
                                 setSaveAnnounceLoading(true);
-                                await albumService.updateGlobalSettings({ announcementText: adminAnnouncementMessage });
-                                setGlobalSettings(s => ({ ...s, announcementText: adminAnnouncementMessage }));
-                                alert(isEs ? '¡Mensaje guardado correctamente!' : 'Message saved successfully!');
+                                await albumService.updateGlobalSettings({ 
+                                  announcementText: adminAnnouncementMessageEs || adminAnnouncementMessageEn,
+                                  announcementTextEs: adminAnnouncementMessageEs,
+                                  announcementTextEn: adminAnnouncementMessageEn
+                                });
+                                setGlobalSettings(s => ({ 
+                                  ...s, 
+                                  announcementText: adminAnnouncementMessageEs || adminAnnouncementMessageEn,
+                                  announcementTextEs: adminAnnouncementMessageEs,
+                                  announcementTextEn: adminAnnouncementMessageEn
+                                }));
+                                alert(isEs ? '¡Mensajes guardados correctamente!' : 'Messages saved successfully!');
                               } catch (err) {
                                 console.error(err);
                               } finally {
@@ -4666,7 +5072,7 @@ export default function App() {
           <div className="flex items-center justify-between w-full sm:w-auto gap-3">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-white/5 rounded-lg flex items-center justify-center overflow-hidden border border-white/10 shrink-0">
-                <img src="https://i.postimg.cc/gkYK9kXr/Logo-Album-2026.png" className="w-8 h-8 object-contain" alt="" />
+                <img src={logoImg} className="w-8 h-8 object-contain" alt="" />
               </div>
               <div className="flex flex-col">
                 <div className="flex items-center gap-2">
@@ -5302,6 +5708,7 @@ export default function App() {
                         const next = !includeCocaColaInStats;
                         setIncludeCocaColaInStats(next);
                         localStorage.setItem('includeCocaColaInStats', next ? 'true' : 'false');
+                        updateUserProfileToggle('includeCocaColaInStats', next);
                         hapticFeedback(ImpactStyle.Light);
                       }}
                       className={`w-14 h-8 rounded-full relative transition-all duration-300 shadow-inner flex items-center shrink-0 ${includeCocaColaInStats ? 'bg-fifa-gold' : 'bg-gray-800'}`}
@@ -5334,6 +5741,7 @@ export default function App() {
                         const next = !hideRPGWidget;
                         setHideRPGWidget(next);
                         localStorage.setItem('hideRPGWidget', next ? 'true' : 'false');
+                        updateUserProfileToggle('hideRPGWidget', next);
                         hapticFeedback(ImpactStyle.Light);
                       }}
                       className={`w-14 h-8 rounded-full relative transition-all duration-300 shadow-inner flex items-center shrink-0 ${hideRPGWidget ? 'bg-fifa-gold' : 'bg-gray-800'}`}

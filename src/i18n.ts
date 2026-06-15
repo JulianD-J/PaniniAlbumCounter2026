@@ -109,7 +109,13 @@ i18n
             swap_done: "Swap Done! ⚽️",
             share_title: "ColeCollect Swap",
             share_message: "Hi {{name}}! Here is our match for ColeCollect:\n\n✅ I give you:\n{{give}}\n\n⚽️ You give me:\n{{get}}\n\nSee you!",
-            none_for_now: "None for now"
+            none_for_now: "None for now",
+            qr_button_title: "Generate Universal QR",
+            qr_button_subtitle: "Compatible with other collector apps",
+            qr_modal_title: "My Universal QR Code",
+            qr_modal_description: "Scan this code with any other collector app to compare and exchange.",
+            qr_copy_text: "Copy QR Data String",
+            qr_close: "Close"
           },
           album: {
             create_error_offline: "You cannot create albums without internet connection.",
@@ -326,7 +332,13 @@ i18n
             swap_done: "¡Cambio Realizado! ⚽️",
             share_title: "Intercambio ColeCollect",
             share_message: "¡Hola {{name}}! Aquí tienes nuestro match para el álbum ColeCollect:\n\n✅ Yo te llevo:\n{{give}}\n\n⚽️ Tú me traes:\n{{get}}\n\n¡Nos vemos pronto!",
-            none_for_now: "Ninguna por ahora"
+            none_for_now: "Ninguna por ahora",
+            qr_button_title: "Generar QR Universal",
+            qr_button_subtitle: "Compatible con otras aplicaciones de coleccionistas",
+            qr_modal_title: "Mi Código QR Universal",
+            qr_modal_description: "Escanea este código con cualquier otra app de coleccionistas para comparar e intercambiar.",
+            qr_copy_text: "Copiar Cadena de Datos QR",
+            qr_close: "Cerrar"
           },
           album: {
             create_error_offline: "No puedes crear álbumes sin conexión a internet.",
