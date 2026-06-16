@@ -19,6 +19,7 @@ import {
 import { linkWithPopup, GoogleAuthProvider } from 'firebase/auth';
 import { BillingPlugin } from 'capacitor-billing';
 import { Capacitor } from '@capacitor/core';
+import { Device } from '@capacitor/device';
 import { db, auth } from './firebase';
 
 export enum OperationType {
@@ -793,6 +794,87 @@ export const albumService = {
     } catch (e) {
       console.error("Error getting exact albums count", e);
       return 0;
+    }
+  },
+
+  async getDeviceId(): Promise<string> {
+    try {
+      const info = await Device.getId();
+      if (info && info.identifier) {
+        return info.identifier;
+      }
+    } catch (e) {
+      console.warn("Capacitor Device.getId() not available, using fallback", e);
+    }
+    
+    let fallbackId = localStorage.getItem('colecollect_device_id');
+    if (!fallbackId) {
+      fallbackId = 'web_' + Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+      localStorage.setItem('colecollect_device_id', fallbackId);
+    }
+    return fallbackId;
+  },
+
+  async registerAnonymousDevice(uid: string) {
+    try {
+      const deviceId = await this.getDeviceId();
+      const ref = doc(db, 'dispositivos_registrados', deviceId);
+      await setDoc(ref, {
+        uid,
+        isAnonymous: true,
+        registeredAt: serverTimestamp()
+      }, { merge: true });
+    } catch (e) {
+      console.error("Failed to register anonymous device in background", e);
+    }
+  },
+
+  async hasAnonymousDeviceAssociation(deviceId: string): Promise<boolean> {
+    try {
+      const docSnap = await getDoc(doc(db, 'dispositivos_registrados', deviceId));
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        return !!data.uid;
+      }
+    } catch (e) {
+      console.error("Failed to check anonymous device association", e);
+    }
+    return false;
+  },
+
+  async checkAndClaimTrial(userId: string, deviceId: string): Promise<{ success: boolean; message?: string }> {
+    try {
+      const docRef = doc(db, 'dispositivos_prueba_gratis', deviceId);
+      const docSnap = await getDoc(docRef);
+      
+      if (docSnap.exists() && docSnap.data().prueba_utilizada === true) {
+        return {
+          success: false,
+          message: "Este dispositivo ya ha utilizado el periodo de prueba gratuito"
+        };
+      }
+      
+      const { writeBatch } = await import('firebase/firestore');
+      const batch = writeBatch(db);
+      
+      batch.set(doc(db, 'dispositivos_prueba_gratis', deviceId), {
+        prueba_utilizada: true,
+        uid: userId,
+        activatedAt: serverTimestamp()
+      });
+      
+      batch.update(doc(db, 'users', userId), {
+        trialUsed: true,
+        trialStartDate: new Date().toISOString(),
+        trialExportCount: 0,
+        updatedAt: serverTimestamp()
+      });
+      
+      await batch.commit();
+      return { success: true };
+    } catch (e) {
+      console.error("Error in checkAndClaimTrial:", e);
+      return { success: false, message: e instanceof Error ? e.message : String(e) };
     }
   }
 };

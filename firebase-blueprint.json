@@ -51,12 +51,42 @@
           }
         }
       }
+    },
+    "DispositivoRegistrado": {
+      "title": "DispositivoRegistrado",
+      "description": "Mapping of device ID to anonymous user UID for fraud prevention.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "isAnonymous": { "type": "boolean" },
+        "registeredAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "isAnonymous"]
+    },
+    "DispositivoPruebaGratis": {
+      "title": "DispositivoPruebaGratis",
+      "description": "Record of devices that have used the free 1-week trial.",
+      "type": "object",
+      "properties": {
+        "prueba_utilizada": { "type": "boolean" },
+        "uid": { "type": "string" },
+        "activatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["prueba_utilizada", "uid"]
     }
   },
   "firestore": {
     "users/{userId}": {
       "schema": "UserProfile",
       "description": "User profiles."
+    },
+    "dispositivos_registrados/{deviceId}": {
+      "schema": "DispositivoRegistrado",
+      "description": "Collection of devices registered anonymously for anti-fraud tracking."
+    },
+    "dispositivos_prueba_gratis/{deviceId}": {
+      "schema": "DispositivoPruebaGratis",
+      "description": "Global list tracking device IDs that consumed the free trial."
     },
     "albums/{albumId}": {
       "schema": "Album",

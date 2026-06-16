@@ -95,5 +95,24 @@ service cloud.firestore {
       );
       allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
     }
+
+    // --- Anti-Fraud Collections ---
+    match /dispositivos_registrados/{deviceId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && 
+        incoming().uid == request.auth.uid &&
+        (incoming().isAnonymous is bool) &&
+        (incoming().get('registeredAt', request.time) == request.time || incoming().get('registeredAt', request.time) is string);
+      allow delete: if false;
+    }
+
+    match /dispositivos_prueba_gratis/{deviceId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() &&
+        incoming().uid == request.auth.uid &&
+        (incoming().prueba_utilizada == true) &&
+        (incoming().get('activatedAt', request.time) == request.time || incoming().get('activatedAt', request.time) is string);
+      allow update, delete: if false;
+    }
   }
 }

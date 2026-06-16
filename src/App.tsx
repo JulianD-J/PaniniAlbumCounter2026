@@ -18,7 +18,8 @@ import {
   updateProfile,
   updatePassword,
   reauthenticateWithPopup,
-  GoogleAuthProvider
+  GoogleAuthProvider,
+  signInAnonymously
 } from 'firebase/auth';
 import { onSnapshot, doc } from 'firebase/firestore';
 import { albumService } from './lib/albumService';
@@ -68,6 +69,8 @@ import {
   ShieldCheck,
   Repeat,
   AlertTriangle,
+  Database,
+  HeartCrack,
   Download,
   FileText,
   Image as ImageIcon,
@@ -3315,6 +3318,27 @@ const CommunityView = ({
   );
 };
 
+function exportInventoryToPlainText(inv: Record<string, any>): string {
+  const obtained: string[] = [];
+  const repeated: string[] = [];
+  
+  Object.keys(inv).forEach(code => {
+    const item = inv[code];
+    if (item && (item.status === 'obtained' || item.status === 'repeated' || item.isConseguida === true)) {
+      const q = item.count || item.quantity || 1;
+      if (q > 1) {
+        repeated.push(`${code} (x${q})`);
+      } else {
+        obtained.push(code);
+      }
+    }
+  });
+  
+  return `=== INVENTARIO DE COLECOLLECT ===\n\n` +
+         `LÁMINAS OBTENIDAS:\n${obtained.join(', ') || 'Ninguna'}\n\n` +
+         `LÁMINAS REPETIDAS:\n${repeated.join(', ') || 'Ninguna'}\n`;
+}
+
 export default function App() {
   const { t, i18n } = useTranslation();
   const isEs = i18n.language.startsWith('es');
@@ -3401,6 +3425,11 @@ export default function App() {
   const [saveAnnounceLoading, setSaveAnnounceLoading] = useState(false);
   const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
   const [announcementHasBeenShown, setAnnouncementHasBeenShown] = useState(false);
+  const [showTemporalWarningModal, setShowTemporalWarningModal] = useState(false);
+  const [showMissingLocalInventoryModal, setShowMissingLocalInventoryModal] = useState(false);
+  const [showMigrationModal, setShowMigrationModal] = useState(false);
+  const [exportText, setExportText] = useState("");
+  const [copiedExport, setCopiedExport] = useState(false);
   const [adminActiveTab, setAdminActiveTab] = useState<'settings' | 'users' | 'stats'>('settings');
   const [adminUsers, setAdminUsers] = useState<any[]>([]);
   const [adminStats, setAdminStats] = useState({
@@ -3663,6 +3692,13 @@ export default function App() {
   const handleClaimTrial = async () => {
     if (!user || userProfile?.trialUsed) return;
     
+    if (user.isAnonymous) {
+      alert(i18n.language.startsWith('es') 
+        ? "La prueba gratuita no está disponible en el Modo Temporal. Por favor registra una cuenta real."
+        : "Free trial is not available in Temporal Mode. Please register a real account.");
+      return;
+    }
+    
     // Check if already linked with Google
     const isGoogleUser = user.providerData.some(p => p.providerId === 'google.com');
     if (!isGoogleUser) {
@@ -3671,12 +3707,21 @@ export default function App() {
     }
 
     hapticFeedback(ImpactStyle.Heavy);
-    await albumService.saveUserProfile(user.uid, { 
-      trialUsed: true, 
-      trialStartDate: new Date().toISOString(),
-      trialExportCount: 0 
-    });
-    confetti({ particleCount: 150, spread: 70, origin: { y: 0.5 }, colors: ['#D4AF37', '#91022D'] });
+    setAuthLoading(true);
+    try {
+      const devId = await albumService.getDeviceId();
+      const res = await albumService.checkAndClaimTrial(user.uid, devId);
+      if (!res.success) {
+        alert(res.message || "Ocurrió un error al procesar el periodo de prueba.");
+        return;
+      }
+      confetti({ particleCount: 150, spread: 70, origin: { y: 0.5 }, colors: ['#D4AF37', '#91022D'] });
+    } catch (e: any) {
+      console.error(e);
+      alert(e.message || "Error procesando solicitud");
+    } finally {
+      setAuthLoading(false);
+    }
   };
 
   const handleExportPerformed = async () => {
@@ -3697,6 +3742,36 @@ export default function App() {
       setUser(u);
       setLoading(false);
       if (u) {
+        if (u.isAnonymous) {
+          // Setup dummy profile for anonymous users to block advanced features gracefully
+          setUserProfile({
+            displayName: "Invitado",
+            isPremium: false,
+            trialUsed: true,
+            isAnonymous: true
+          });
+          
+          // Background anti-fraud registration and validation
+          (async () => {
+            try {
+              const devId = await albumService.getDeviceId();
+              const hasPrevReg = await albumService.hasAnonymousDeviceAssociation(devId);
+              const localInv = localStorage.getItem('local_album_inventory');
+              
+              if (hasPrevReg && (!localInv || localInv === '{}' || Object.keys(JSON.parse(localInv)).length === 0)) {
+                setShowMissingLocalInventoryModal(true);
+              }
+              
+              // Register device in background
+              await albumService.registerAnonymousDevice(u.uid);
+            } catch (err) {
+              console.error("Error checking/registering anonymous device:", err);
+            }
+          })();
+          
+          return;
+        }
+
         // Only save profile and setup real-time listeners if online
         if (navigator.onLine) {
           albumService.saveUserProfile(u.uid, {
@@ -3773,14 +3848,32 @@ export default function App() {
     }
   }, [albums, activeAlbum]);
 
+  // Load local inventory if anonymous
   useEffect(() => {
-    if (activeAlbum) {
+    if (user && user.isAnonymous) {
+      const stored = localStorage.getItem('local_album_inventory');
+      if (stored) {
+        try {
+          setRawInventory(JSON.parse(stored));
+        } catch (e) {
+          console.error("Failed to parse local inventory", e);
+          setRawInventory({});
+        }
+      } else {
+        setRawInventory({});
+      }
+      setActiveAlbum({ id: 'local_album', name: 'Mi Álbum Local', isInverseMode: false });
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (activeAlbum && (!user || !user.isAnonymous)) {
       const unsub = albumService.subscribeToInventory(activeAlbum.id, (inv) => {
         setRawInventory(inv);
       });
       return unsub;
     }
-  }, [activeAlbum]);
+  }, [activeAlbum, user]);
 
   // Completion Celebrate Effect
   useEffect(() => {
@@ -3875,6 +3968,25 @@ export default function App() {
       }
     } catch (e: any) {
       setError(e.message);
+    }
+  };
+
+  const handleTemporalModeClick = () => {
+    hapticFeedback(ImpactStyle.Medium);
+    setShowTemporalWarningModal(true);
+  };
+
+  const handleConfirmTemporalMode = async () => {
+    setShowTemporalWarningModal(false);
+    setAuthLoading(true);
+    setError("");
+    try {
+      await signInAnonymously(auth);
+    } catch (e: any) {
+      console.error(e);
+      setError(e.message || "Error al iniciar sesión anónima.");
+    } finally {
+      setAuthLoading(false);
     }
   };
 
@@ -3993,6 +4105,22 @@ export default function App() {
   };
 
   const handleUpdateSticker = (code: string, status: StickerStatus, count: number) => {
+    if (user?.isAnonymous) {
+      const nextInv = {
+        ...rawInventory,
+        [code]: {
+          quantity: status !== 'missing' ? count : 0,
+          isConseguida: status !== 'missing',
+          count: status !== 'missing' ? count : 0,
+          status: status,
+          updatedAt: new Date().toISOString()
+        }
+      };
+      setRawInventory(nextInv);
+      localStorage.setItem('local_album_inventory', JSON.stringify(nextInv));
+      return;
+    }
+
     if (!activeAlbum) return;
     
     // Lock offline editing behind premium
@@ -4463,6 +4591,15 @@ export default function App() {
           {!globalSettings.googleLoginEnabled && (
             <p className="text-[10px] text-fifa-red text-center mt-2 font-bold uppercase tracking-widest">{t('auth.google_login_disabled')}</p>
           )}
+
+          <button 
+            type="button"
+            onClick={handleTemporalModeClick}
+            disabled={authLoading}
+            className="w-full mt-3 flex items-center justify-center gap-3 py-3 bg-[#91022D]/10 border border-[#91022D]/30 text-fifa-gold hover:text-white font-bold rounded-xl hover:bg-[#91022D]/20 transition-all transform active:scale-95 disabled:opacity-50"
+          >
+            {i18n.language.startsWith('es') ? 'Entrar como Invitado (Modo Temporal)' : 'Join as Guest (Temporal Mode)'}
+          </button>
 
           <p className="text-center mt-8 text-sm text-gray-500">
             {authMode === 'login' ? t('auth.no_account') : t('auth.have_account')} 
@@ -5176,6 +5313,31 @@ export default function App() {
           >
             <WifiOff size={14} className="animate-pulse" />
             <span>{t('album.offline_banner')}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Banner Modo Temporal / Invitado */}
+      <AnimatePresence>
+        {user?.isAnonymous && (
+          <motion.div 
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="bg-amber-600 text-white text-[10px] sm:text-xs font-bold py-2 px-4 flex flex-wrap items-center justify-center gap-2 sticky top-0 z-[120] shadow-lg uppercase tracking-wider text-center"
+          >
+            <span>⚠️ {i18n.language.startsWith('es') ? 'MODO TEMPORAL: Los datos solo se guardan en el celular.' : 'TEMPORAL MODE: Data only saved locally.'}</span>
+            <button
+              onClick={() => {
+                const txt = exportInventoryToPlainText(rawInventory);
+                setExportText(txt);
+                setCopiedExport(false);
+                setShowMigrationModal(true);
+              }}
+              className="underline hover:text-fifa-gold font-extrabold ml-1 uppercase cursor-pointer"
+            >
+              [{i18n.language.startsWith('es') ? 'Regístrate con Cuenta Real' : 'Register with Real Account'}]
+            </button>
           </motion.div>
         )}
       </AnimatePresence>
@@ -6310,6 +6472,207 @@ export default function App() {
                 <p className="text-[10px] text-gray-600 text-center uppercase tracking-widest font-bold">
                   {t('auth.reauth_msg')}
                 </p>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* MODAL 1: ADVERTENCIA MODO TEMPORAL */}
+      <AnimatePresence>
+        {showTemporalWarningModal && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md"
+            id="temporal-warning-backdrop"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-dark-bg w-full max-w-lg rounded-3xl border-2 border-fifa-gold/30 overflow-hidden shadow-2xl relative"
+              id="temporal-warning-card"
+            >
+              <div className="p-6 border-b border-white/5 flex items-center justify-between bg-fifa-gold/5">
+                <h3 className="text-lg font-display font-bold flex items-center gap-2 text-fifa-gold">
+                  <AlertTriangle className="text-fifa-gold animate-bounce" size={24} /> 
+                  <span>{i18n.language.startsWith('es') ? 'ADVERTENCIA DE MODO TEMPORAL' : 'TEMPORAL MODE WARNING'}</span>
+                </h3>
+                <button onClick={() => setShowTemporalWarningModal(false)} className="p-2 hover:bg-white/5 rounded-full transition-colors text-gray-500">
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="p-8 space-y-6">
+                <p className="text-gray-200 text-sm leading-relaxed text-center font-medium bg-[#91022D]/10 border border-[#91022D]/20 p-5 rounded-2xl shadow-inner">
+                  "Este modo solo habilita el guardado de láminas local. Ningún dato de tu inventario se envía a la nube; todo se guarda en el celular. Funciones aparte del registro básico están bloqueadas."
+                </p>
+
+                <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                  <button
+                    onClick={() => setShowTemporalWarningModal(false)}
+                    className="flex-1 bg-white/5 hover:bg-white/10 text-gray-400 font-bold py-3.5 rounded-xl transition-all uppercase tracking-wider text-xs border border-white/10"
+                    id="temporal-warning-cancel"
+                  >
+                    {i18n.language.startsWith('es') ? 'Cancelar' : 'Cancel'}
+                  </button>
+
+                  <button
+                    onClick={handleConfirmTemporalMode}
+                    className="flex-1 bg-fifa-gold text-black hover:bg-fifa-gold/90 font-black py-3.5 rounded-xl transition-all uppercase tracking-wider text-xs shadow-lg shadow-fifa-gold/10"
+                    id="temporal-warning-confirm"
+                  >
+                    {i18n.language.startsWith('es') ? 'Aceptar y Continuar' : 'Accept and Continue'}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* MODAL 2: AVISO LÁMINAS LOCALES NO ENCONTRADAS */}
+      <AnimatePresence>
+        {showMissingLocalInventoryModal && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md"
+            id="missing-local-backdrop"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-dark-bg w-full max-w-lg rounded-3xl border-2 border-fifa-red/30 overflow-hidden shadow-2xl"
+              id="missing-local-card"
+            >
+              <div className="p-6 border-b border-white/5 flex items-center justify-between bg-fifa-red/5">
+                <h3 className="text-lg font-display font-bold flex items-center gap-2 text-fifa-red">
+                  <HeartCrack className="text-fifa-red shrink-0" size={24} />
+                  <span>{i18n.language.startsWith('es') ? 'DATOS LOCALES INCOMPLETOS' : 'LOCAL PROGRESS NOT FOUND'}</span>
+                </h3>
+              </div>
+
+              <div className="p-8 space-y-6 text-center">
+                <div className="mx-auto w-16 h-16 bg-[#91022D]/15 rounded-full flex items-center justify-center mb-4">
+                  <Database className="text-[#91022D] animate-pulse" size={32} />
+                </div>
+
+                <p className="text-gray-200 text-sm leading-relaxed font-bold bg-[#91022D]/10 border border-[#91022D]/20 p-5 rounded-2xl shadow-inner">
+                  "No se encontraron tus láminas locales. Para evitar perder tu progreso a futuro, por favor crea una cuenta real."
+                </p>
+
+                <div className="flex flex-col gap-3 pt-2">
+                  <button
+                    onClick={() => {
+                      setShowMissingLocalInventoryModal(false);
+                      hapticFeedback(ImpactStyle.Medium);
+                      handleLogout();
+                      setAuthMode('register');
+                    }}
+                    className="w-full bg-fifa-gold text-black hover:bg-fifa-gold/90 font-black py-4 rounded-xl transition-all uppercase tracking-wider text-xs shadow-lg shadow-fifa-gold/10"
+                    id="missing-local-register-btn"
+                  >
+                    {i18n.language.startsWith('es') ? 'Crear Cuenta Real Ahora' : 'Create Real Account Now'}
+                  </button>
+
+                  <button
+                    onClick={() => setShowMissingLocalInventoryModal(false)}
+                    className="w-full bg-white/5 hover:bg-white/10 text-gray-400 font-bold py-3 rounded-xl transition-all uppercase tracking-wider text-xs border border-white/10"
+                    id="missing-local-continue-guest"
+                  >
+                    {i18n.language.startsWith('es') ? 'Continuar como Invitado' : 'Continue as Guest'}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* MODAL 3: MIGRACIÓN / EXPORTACIÓN DE CUENTA TEMPORAL */}
+      <AnimatePresence>
+        {showMigrationModal && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md"
+            id="migration-backdrop"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-dark-bg w-full max-w-xl rounded-3xl border border-white/10 overflow-hidden shadow-2xl"
+              id="migration-card"
+            >
+              <div className="p-6 border-b border-white/5 flex items-center justify-between bg-white/[0.02]">
+                <h3 className="text-lg font-display font-bold flex items-center gap-2 text-fifa-gold">
+                  <Database className="text-fifa-gold" size={20} />
+                  <span>{i18n.language.startsWith('es') ? 'REGISTRAR CUENTA REAL' : 'REGISTER REAL ACCOUNT'}</span>
+                </h3>
+                <button onClick={() => setShowMigrationModal(false)} className="p-2 hover:bg-white/5 rounded-full transition-colors text-gray-500">
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="p-8 space-y-6">
+                <div className="bg-yellow-500/10 border border-yellow-500/20 p-4 rounded-2xl flex items-start gap-3">
+                  <AlertTriangle className="text-yellow-500 shrink-0 mt-0.5" size={18} />
+                  <p className="text-xs text-yellow-500/90 leading-relaxed font-bold">
+                    {i18n.language.startsWith('es') 
+                      ? 'ADVERTENCIA: Los datos locales previos no se fusionarán automáticamente en la nube. Por favor, asegúrate de copiar o guardar tu inventario actual en formato de texto plano antes de proceder.'
+                      : 'WARNING: Previous local data will not merge automatically in the cloud. Please verify you copy or save your current inventory to plain text format before proceeding.'}
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest px-1">
+                    {i18n.language.startsWith('es') ? 'Tu Inventario como Texto Plano' : 'Your Inventory in Plain Text'}
+                  </label>
+                  <textarea
+                    readOnly
+                    value={exportText}
+                    className="w-full h-40 bg-black/30 border border-white/10 rounded-2xl p-4 text-xs font-mono text-gray-300 focus:outline-none focus:border-fifa-gold resize-none leading-relaxed"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(exportText);
+                    setCopiedExport(true);
+                    hapticFeedback(ImpactStyle.Light);
+                    setTimeout(() => setCopiedExport(false), 3000);
+                  }}
+                  className={`w-full py-3.5 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${
+                    copiedExport ? 'bg-green-500/10 border border-green-500/40 text-green-400' : 'bg-white/5 border border-white/10 text-white hover:bg-white/10'
+                  }`}
+                  id="migration-copy-btn"
+                >
+                  {copiedExport ? <CheckCircle2 size={16} /> : <Copy size={16} />}
+                  <span>{copiedExport ? (i18n.language.startsWith('es') ? '¡Copiado con Éxito!' : 'Copied successfully!') : (i18n.language.startsWith('es') ? 'Copiar Inventario al Portapapeles' : 'Copy Inventory to Clipboard')}</span>
+                </button>
+
+                <div className="border-t border-white/5 pt-6 flex flex-col gap-3">
+                  <button
+                    onClick={() => {
+                      hapticFeedback(ImpactStyle.Medium);
+                      setShowMigrationModal(false);
+                      handleLogout();
+                      setAuthMode('register');
+                    }}
+                    className="w-full bg-[#91022D] hover:bg-[#91022D]/90 text-white font-black py-4 rounded-xl transition-all uppercase tracking-wider text-xs shadow-lg shadow-[#91022D]/20 flex items-center justify-center gap-2"
+                    id="migration-register-confirm"
+                  >
+                    <span>{i18n.language.startsWith('es') ? 'Proceder al Registro de Cuenta Real' : 'Proceed to Real Account Registration'}</span>
+                  </button>
+                </div>
               </div>
             </motion.div>
           </motion.div>
