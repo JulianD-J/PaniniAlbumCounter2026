@@ -14,18 +14,14 @@ export interface DecodedLaminasResult {
 }
 
 /**
- * Ordered list of sections for the 20-bit block architecture
- * Index 0: 'FWC' (Offset: 0 bits)
- * Index 1: 'MEX' (Offset: 20 bits)
- * Index 37: 'ARG' (Offset: 740 bits - Byte 92)
- * Total length is exactly 50 segments
+ * Gets the order of segments dynamically.
+ * Index 0: 'FWC' (strict requirement)
+ * Indices 1-48+: mapped to the teams array.
  */
-export const SECTIONS_ORDER: string[] = Array.from({ length: 50 }, (_, i) => {
-  if (i === 0) return 'FWC';
-  if (i === 1) return 'MEX';
-  if (i === 37) return 'ARG';
-  return `UNKNOWN_${i}`;
-});
+export function getSectionsOrder(customTeams?: string[]): string[] {
+  const teams = customTeams || TEAMS;
+  return ['FWC', ...teams];
+}
 
 /**
  * Parses a sticker code string (e.g. "FWC", "FWC5", "ARG20") into a Lamina structure
@@ -69,13 +65,18 @@ export function getStickerCodesOrder(cocaColaCount: number = 14): string[] {
  * Converts lists of missing and repeated Laminas into a packed QR string compatible with:
  * ⋋~[Faltantes_Base64_GZIP];[Repetidas_Base64_GZIP]
  */
-export function encodeLaminasToQRString(missingLaminas: Lamina[], repeatedLaminas: Lamina[]): string {
+export function encodeLaminasToQRString(
+  missingLaminas: Lamina[],
+  repeatedLaminas: Lamina[],
+  teamsList?: string[]
+): string {
   const missingBitfield = new Uint8Array(125); // 125 bytes = 1000 bits
   const repeatedBitfield = new Uint8Array(125);
+  const sectionsOrder = getSectionsOrder(teamsList);
 
   // Encode missing with Little-Endian bits
   for (const lamina of missingLaminas) {
-    const sIdx = SECTIONS_ORDER.indexOf(lamina.section);
+    const sIdx = sectionsOrder.indexOf(lamina.section);
     if (sIdx === -1) continue;
     const internalBit = lamina.section === 'FWC' ? lamina.number : (lamina.number - 1);
     const globalBitIndex = (sIdx * 20) + internalBit;
@@ -89,7 +90,7 @@ export function encodeLaminasToQRString(missingLaminas: Lamina[], repeatedLamina
 
   // Encode repeated with Little-Endian bits
   for (const lamina of repeatedLaminas) {
-    const sIdx = SECTIONS_ORDER.indexOf(lamina.section);
+    const sIdx = sectionsOrder.indexOf(lamina.section);
     if (sIdx === -1) continue;
     const internalBit = lamina.section === 'FWC' ? lamina.number : (lamina.number - 1);
     const globalBitIndex = (sIdx * 20) + internalBit;
@@ -113,30 +114,35 @@ export function encodeLaminasToQRString(missingLaminas: Lamina[], repeatedLamina
 /**
  * Overloaded function to encode inventory or specified Lamina arrays.
  * Supports both signatures:
- * 1. encodeInventoryToQRString(faltantes: Lamina[], repetidas: Lamina[]): string
- * 2. encodeInventoryToQRString(inventory: Record<string, any>, cocaColaCount?: number): string
+ * 1. encodeInventoryToQRString(faltantes: Lamina[], repetidas: Lamina[], teamsList?: string[]): string
+ * 2. encodeInventoryToQRString(inventory: Record<string, any>, cocaColaCount?: number, teamsList?: string[]): string
  */
 export function encodeInventoryToQRString(
   faltantes: Lamina[],
-  repetidas: Lamina[]
+  repetidas: Lamina[],
+  teamsList?: string[]
 ): string;
 export function encodeInventoryToQRString(
   inventory: Record<string, any>,
-  cocaColaCount?: number
+  cocaColaCount?: number,
+  teamsList?: string[]
 ): string;
 export function encodeInventoryToQRString(
   firstArg: Lamina[] | Record<string, any>,
-  secondArg?: Lamina[] | number
+  secondArg?: Lamina[] | number,
+  thirdArg?: string[]
 ): string {
   if (Array.isArray(firstArg)) {
-    // Signature: encodeInventoryToQRString(faltantes: Lamina[], repetidas: Lamina[]): string
+    // Signature: encodeInventoryToQRString(faltantes: Lamina[], repetidas: Lamina[], teamsList?: string[]): string
     const faltantes = firstArg as Lamina[];
     const repetidas = (Array.isArray(secondArg) ? secondArg : []) as Lamina[];
-    return encodeLaminasToQRString(faltantes, repetidas);
+    const teamsList = thirdArg;
+    return encodeLaminasToQRString(faltantes, repetidas, teamsList);
   } else {
-    // Signature: encodeInventoryToQRString(inventory: Record<string, any>, cocaColaCount = 14): string
+    // Signature: encodeInventoryToQRString(inventory: Record<string, any>, cocaColaCount = 14, teamsList?: string[]): string
     const inventory = firstArg as Record<string, any>;
     const cocaColaCount = typeof secondArg === 'number' ? secondArg : 14;
+    const teamsList = thirdArg;
 
     const allCodes = getStickerCodesOrder(cocaColaCount);
     const missingLaminas: Lamina[] = [];
@@ -160,7 +166,7 @@ export function encodeInventoryToQRString(
       }
     }
 
-    return encodeLaminasToQRString(missingLaminas, repeatedLaminas);
+    return encodeLaminasToQRString(missingLaminas, repeatedLaminas, teamsList);
   }
 }
 
@@ -169,7 +175,10 @@ export function encodeInventoryToQRString(
  * Returns both English properties (missing/repeated) and Spanish properties (faltantes/repetidas)
  * for seamless backward and forward compatibility.
  */
-export function decodeQRStringToLaminas(qrString: string): DecodedLaminasResult {
+export function decodeQRStringToLaminas(
+  qrString: string,
+  teamsList?: string[]
+): DecodedLaminasResult {
   const missing: Lamina[] = [];
   const repeated: Lamina[] = [];
 
@@ -190,6 +199,8 @@ export function decodeQRStringToLaminas(qrString: string): DecodedLaminasResult 
     const missingDecompressed = pako.ungzip(missingBytes);
     const repeatedDecompressed = pako.ungzip(repeatedBytes);
 
+    const sectionsOrder = getSectionsOrder(teamsList);
+
     // Decode missing bitfield using Little-Endian bits
     for (let globalBitIndex = 0; globalBitIndex < 1000; globalBitIndex++) {
       const byteIdx = Math.floor(globalBitIndex / 8);
@@ -200,8 +211,8 @@ export function decodeQRStringToLaminas(qrString: string): DecodedLaminasResult 
         if (isSet) {
           const sectionIdx = Math.floor(globalBitIndex / 20);
           const internalBit = globalBitIndex % 20;
-          const section = SECTIONS_ORDER[sectionIdx];
-          if (section && !section.startsWith('UNKNOWN_')) {
+          const section = sectionsOrder[sectionIdx];
+          if (section) {
             const number = section === 'FWC' ? internalBit : (internalBit + 1);
             missing.push({ section, number });
           }
@@ -213,8 +224,8 @@ export function decodeQRStringToLaminas(qrString: string): DecodedLaminasResult 
         if (isSet) {
           const sectionIdx = Math.floor(globalBitIndex / 20);
           const internalBit = globalBitIndex % 20;
-          const section = SECTIONS_ORDER[sectionIdx];
-          if (section && !section.startsWith('UNKNOWN_')) {
+          const section = sectionsOrder[sectionIdx];
+          if (section) {
             const number = section === 'FWC' ? internalBit : (internalBit + 1);
             repeated.push({ section, number });
           }
@@ -232,11 +243,15 @@ export function decodeQRStringToLaminas(qrString: string): DecodedLaminasResult 
  * Decodes a QR code string back into missing and repeated status arrays.
  * Kept for full backward-compatibility with rest of application.
  */
-export function decodeQRStringToStatus(qrString: string, cocaColaCount: number = 14): {
+export function decodeQRStringToStatus(
+  qrString: string,
+  cocaColaCount: number = 14,
+  teamsList?: string[]
+): {
   missingCodes: string[];
   repeatedCodes: string[];
 } {
-  const { missing, repeated } = decodeQRStringToLaminas(qrString);
+  const { missing, repeated } = decodeQRStringToLaminas(qrString, teamsList);
   return {
     missingCodes: missing.map(laminaToCode),
     repeatedCodes: repeated.map(laminaToCode)
