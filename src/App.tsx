@@ -1622,9 +1622,72 @@ const Section = ({
   );
 };
 
-const StatsTab = ({ inventory, isPremium, onUpgrade, activeAlbum, includeCocaColaInStats = true }: { inventory: Record<string, any>, isPremium: boolean, onUpgrade: () => void, activeAlbum?: any, includeCocaColaInStats?: boolean }) => {
+const StatsTab = ({ 
+  inventory, 
+  isPremium, 
+  onUpgrade, 
+  activeAlbum, 
+  includeCocaColaInStats = true,
+  isAnonymous,
+  onRegister
+}: { 
+  inventory: Record<string, any>, 
+  isPremium: boolean, 
+  onUpgrade: () => void, 
+  activeAlbum?: any, 
+  includeCocaColaInStats?: boolean,
+  isAnonymous?: boolean,
+  onRegister?: () => void
+}) => {
   const { t, i18n } = useTranslation();
   const isEs = i18n.language.startsWith('es');
+
+  if (isAnonymous) {
+    return (
+      <div className="relative group w-full py-12">
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-80 h-80 bg-amber-500/5 blur-[80px] rounded-full" />
+        </div>
+        <div className="flex flex-col items-center justify-center p-4">
+          <motion.div 
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="fifa-card bg-gradient-to-b from-[#1E1E1E] to-[#121214] border border-white/5 rounded-[2.5rem] p-8 md:p-12 text-center max-w-lg shadow-2xl relative overflow-hidden"
+          >
+            {/* Elegant Accent Border */}
+            <div className="absolute top-0 inset-x-0 h-[3px] bg-gradient-to-r from-amber-500 via-[#FFD700] to-yellow-600" />
+            
+            <div className="w-16 h-16 bg-amber-500/10 rounded-2xl flex items-center justify-center mx-auto mb-6 border border-amber-500/20 shadow-lg shadow-amber-950/20">
+              <span className="text-3xl">🔒</span>
+            </div>
+            
+            <h3 className="text-xl md:text-2xl font-display font-black text-white tracking-tight mb-3">
+              {isEs ? 'Estadísticas del Álbum Bloqueadas' : 'Album Statistics Locked'}
+            </h3>
+            
+            <p className="text-xs md:text-sm text-gray-400 leading-relaxed mb-8 px-2 md:px-4">
+              {isEs 
+                ? 'El acceso a las analíticas automáticas, progreso regional, probabilidades de intercambio y predicciones matemáticas están deshabilitados para perfiles de Modo Temporal.' 
+                : 'Advanced real-time calculations, regional completion rates, and trade probability algorithms require an active registered account.'}
+              <span className="block mt-2 text-amber-500 font-bold">
+                {isEs 
+                  ? '¡Regístrate gratis para habilitar de forma permanente estas características!' 
+                  : 'Register a free account to unlock these features permanently and securely!'}
+              </span>
+            </p>
+            
+            <button
+              type="button"
+              onClick={onRegister}
+              className="w-full py-4 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-500 text-black font-display font-black text-xs uppercase tracking-widest rounded-2xl transition-all border border-yellow-500/20 active:scale-[0.98] shadow-lg shadow-amber-500/10 animate-pulse"
+            >
+              🚀 {isEs ? 'Registrarse / Iniciar Sesión' : 'Register / Log In Now'}
+            </button>
+          </motion.div>
+        </div>
+      </div>
+    );
+  }
 
   const [teamSearchQuery, setTeamSearchQuery] = useState("");
   const [teamSortBy, setTeamSortBy] = useState<"name" | "progress-desc" | "progress-asc" | "repeated-desc">("progress-desc");
@@ -3719,6 +3782,20 @@ export default function App() {
     changelog: ""
   });
 
+  const LOCAL_APP_VERSION = "1.0.0";
+  const [showChangelogModal, setShowChangelogModal] = useState(false);
+
+  const hasUpdate = useMemo(() => {
+    if (!globalSettings.appVersion) return false;
+    const parseVersion = (v: string) => v.split('.').map(num => parseInt(num || '0', 10));
+    const [localMajor, localMinor, localPatch] = parseVersion(LOCAL_APP_VERSION);
+    const [remoteMajor, remoteMinor, remotePatch] = parseVersion(globalSettings.appVersion);
+    if (remoteMajor > localMajor) return true;
+    if (remoteMajor === localMajor && remoteMinor > localMinor) return true;
+    if (remoteMajor === localMajor && remoteMinor === localMinor && remotePatch > localPatch) return true;
+    return false;
+  }, [globalSettings.appVersion]);
+
   const currentAnnouncementText = useMemo(() => {
     if (isEs) {
       return globalSettings.announcementTextEs || globalSettings.announcementText || "";
@@ -3729,7 +3806,10 @@ export default function App() {
   const [adminAnnouncementMessage, setAdminAnnouncementMessage] = useState("");
   const [adminAnnouncementMessageEs, setAdminAnnouncementMessageEs] = useState("");
   const [adminAnnouncementMessageEn, setAdminAnnouncementMessageEn] = useState("");
+  const [adminAppVersion, setAdminAppVersion] = useState("1.0.0");
+  const [adminChangelog, setAdminChangelog] = useState("");
   const [saveAnnounceLoading, setSaveAnnounceLoading] = useState(false);
+  const [saveVersionLoading, setSaveVersionLoading] = useState(false);
   const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
   const [announcementHasBeenShown, setAnnouncementHasBeenShown] = useState(false);
   const [showTemporalWarningModal, setShowTemporalWarningModal] = useState(false);
@@ -3846,6 +3926,8 @@ export default function App() {
       }
       setAdminAnnouncementMessageEs(settings?.announcementTextEs || settings?.announcementText || "");
       setAdminAnnouncementMessageEn(settings?.announcementTextEn || settings?.announcementText || "");
+      setAdminAppVersion(settings?.appVersion || "1.0.0");
+      setAdminChangelog(settings?.changelog || "");
     };
     fetchSettings();
   }, []);
@@ -5166,6 +5248,100 @@ export default function App() {
 
   return (
     <div className="min-h-screen pb-20 selection:bg-fifa-gold selection:text-black w-full overflow-x-hidden">
+      {hasUpdate && (
+        <div className="bg-gradient-to-r from-fifa-gold/20 via-yellow-500/10 to-[#1e1e1e] border-b border-[#FFD700]/30 py-3 px-4 relative z-[99] flex flex-wrap items-center justify-between gap-3 text-white max-w-7xl mx-auto rounded-b-3xl shadow-[0_4px_20px_rgba(212,175,55,0.05)] animate-fade-in">
+          <div className="flex items-center gap-3">
+            <span className="text-xl shrink-0">🆕</span>
+            <div className="text-left">
+              <p className="text-xs font-black uppercase tracking-wider text-[#FFD700]">
+                {isEs ? `¡Nueva Actualización Disponible! v${globalSettings.appVersion}` : `New Update Available! v${globalSettings.appVersion}`}
+              </p>
+              {globalSettings.changelog && (
+                <p className="text-[11px] text-gray-300 font-sans mt-0.5 leading-relaxed max-w-2xl line-clamp-1">
+                  ✏️ {globalSettings.changelog}
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {globalSettings.changelog && (
+              <button
+                onClick={() => setShowChangelogModal(true)}
+                className="px-3 py-1.5 bg-white/5 border border-white/10 hover:bg-white/10 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all"
+              >
+                {isEs ? "Ver Cambios" : "Changelog"}
+              </button>
+            )}
+            <a
+              href="https://play.google.com/store/apps/details?id=com.colediverti.album2026"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-4 py-1.5 bg-[#FFD700] hover:bg-yellow-400 text-black rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shadow-[0_2px_10px_rgba(212,175,55,0.2)] flex items-center gap-2"
+            >
+              🚀 {isEs ? "Actualizar" : "Update Now"}
+            </a>
+          </div>
+        </div>
+      )}
+
+      {/* Changelog Modal */}
+      <AnimatePresence>
+        {showChangelogModal && (
+          <div className="fixed inset-0 z-[190] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/85 backdrop-blur-md" 
+              onClick={() => setShowChangelogModal(false)} 
+            />
+            <motion.div 
+              initial={{ scale: 0.9, y: 15, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.9, y: 15, opacity: 0 }}
+              className="relative w-full max-w-md bg-[#111113] border border-fifa-gold/30 rounded-[2.5rem] p-8 shadow-[0_0_80px_rgba(212,175,55,0.08)] overflow-hidden z-10 text-white text-center"
+            >
+              {/* Top ambient highlight */}
+              <div className="absolute top-0 left-1/2 -translate-x-1/2 w-40 h-2 bg-gradient-to-r from-transparent via-fifa-gold/40 to-transparent rounded-full" />
+              
+              <div className="flex flex-col items-center mt-3">
+                <div className="w-14 h-14 bg-fifa-gold/10 rounded-2xl flex items-center justify-center border border-fifa-gold/20 mb-5">
+                  <span className="text-2xl">🚀</span>
+                </div>
+                
+                <h3 className="text-xl font-display font-black tracking-tight mb-1 uppercase">
+                  {isEs ? 'Notas de la Actualización' : 'Update Changelog'}
+                </h3>
+                <span className="text-xs text-[#FFD700] font-mono font-bold uppercase tracking-wider mb-4">
+                  {isEs ? `Versión v${globalSettings.appVersion}` : `Version v${globalSettings.appVersion}`}
+                </span>
+                 
+                <div className="w-full bg-white/[0.03] border border-white/5 rounded-2xl p-5 mb-6 text-sm text-gray-300 leading-relaxed text-left max-h-[250px] overflow-y-auto font-sans whitespace-pre-wrap">
+                  {globalSettings.changelog || (isEs ? "Mejoras de rendimiento y corrección de errores." : "Performance enhancements and bug fixes.")}
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-3 w-full">
+                  <button
+                    onClick={() => setShowChangelogModal(false)}
+                    className="flex-1 py-3.5 bg-white/5 hover:bg-white/10 text-white font-display font-black text-xs uppercase tracking-widest rounded-2xl transition-all border border-white/10 active:scale-[0.98]"
+                  >
+                    {isEs ? 'Cerrar' : 'Close'}
+                  </button>
+                  <a
+                    href="https://play.google.com/store/apps/details?id=com.colediverti.album2026"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 py-3.5 bg-[#FFD700] hover:bg-yellow-400 text-black font-display font-black text-xs uppercase tracking-widest rounded-2xl transition-all active:scale-[0.98] shadow-lg shadow-fifa-gold/15 flex items-center justify-center gap-1.5"
+                  >
+                    {isEs ? 'Ir a Play Store' : 'Go to Play Store'}
+                  </a>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       <AnimatePresence>
         {/* User announcement modal shown when opening */}
         {showAnnouncementModal && globalSettings.announcementEnabled && currentAnnouncementText && (
@@ -5439,6 +5615,75 @@ export default function App() {
                             className="px-5 py-2.5 bg-fifa-gold text-black text-xs font-black uppercase tracking-wider rounded-xl hover:bg-yellow-400 hover:scale-[1.02] transition-all active:scale-[0.98] disabled:opacity-50"
                           >
                             {saveAnnounceLoading ? (isEs ? 'Guardando...' : 'Saving...') : (isEs ? 'Guardar Cambios' : 'Save Text')}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* App Version and Changelog Administration Card */}
+                    <div className="p-5 bg-white/[0.02] rounded-[1.8rem] border border-white/5 space-y-4">
+                      <div className="space-y-1">
+                        <h3 className="font-bold text-white text-sm">
+                          {isEs ? 'Control de Versiones y Changelog' : 'Version Control & Changelog'}
+                        </h3>
+                        <p className="text-xs text-gray-500 leading-relaxed">
+                          {isEs ? 'Gestiona la versión actual de la app y avisa a tus usuarios sobre actualizaciones.' : 'Manage the current stable release of the app and broadcast features update.'}
+                        </p>
+                      </div>
+
+                      <div className="space-y-4 pt-2 border-t border-white/5">
+                        <div className="space-y-1">
+                          <label className="text-[10px] uppercase tracking-wider font-bold text-gray-500 block">
+                            {isEs ? 'Versión Objetivo de la App (Ej. 1.0.1)' : 'Target App Version (e.g., 1.0.1)'}
+                          </label>
+                          <input
+                            type="text"
+                            value={adminAppVersion}
+                            onChange={(e) => setAdminAppVersion(e.target.value)}
+                            placeholder="1.0.0"
+                            className="w-full bg-black/60 border border-white/10 rounded-2xl p-3 text-xs text-white focus:outline-none focus:border-fifa-gold/40 transition-colors placeholder-gray-600 font-mono"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[10px] uppercase tracking-wider font-bold text-gray-500 block">
+                            {isEs ? 'Lista de Cambios (Changelog)' : 'Changelog / Update Notes'}
+                          </label>
+                          <textarea
+                            value={adminChangelog}
+                            onChange={(e) => setAdminChangelog(e.target.value)}
+                            placeholder={isEs ? 'Nuevas funciones increíbles...' : 'Amazing new features added...'}
+                            className="w-full h-24 bg-black/60 border border-white/10 rounded-2xl p-3 text-xs text-white focus:outline-none focus:border-fifa-gold/40 transition-colors resize-none placeholder-gray-600 font-sans leading-relaxed"
+                          />
+                        </div>
+
+                        <div className="flex justify-end">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                setSaveVersionLoading(true);
+                                await albumService.updateGlobalSettings({ 
+                                  appVersion: adminAppVersion,
+                                  changelog: adminChangelog
+                                });
+                                setGlobalSettings(s => ({ 
+                                  ...s, 
+                                  appVersion: adminAppVersion,
+                                  changelog: adminChangelog
+                                }));
+                                alert(isEs ? '¡Cambios de versión guardados!' : 'Version controls saved successfully!');
+                              } catch (err) {
+                                console.error(err);
+                                alert(isEs ? 'Error al guardar la versión.' : 'Error saving version settings.');
+                              } finally {
+                                setSaveVersionLoading(false);
+                              }
+                            }}
+                            disabled={saveVersionLoading}
+                            className="px-5 py-2.5 bg-fifa-gold text-black text-xs font-black uppercase tracking-wider rounded-xl hover:bg-yellow-400 hover:scale-[1.02] transition-all active:scale-[0.98] disabled:opacity-50"
+                          >
+                            {saveVersionLoading ? (isEs ? 'Guardando...' : 'Saving...') : (isEs ? 'Guardar Versión' : 'Save Version Info')}
                           </button>
                         </div>
                       </div>
@@ -6109,6 +6354,13 @@ export default function App() {
                 onUpgrade={() => setShowPremiumModal(true)} 
                 activeAlbum={activeAlbum} 
                 includeCocaColaInStats={includeCocaColaInStats} 
+                isAnonymous={!!user?.isAnonymous}
+                onRegister={() => {
+                  const txt = exportInventoryToPlainText(rawInventory);
+                  setExportText(txt);
+                  setCopiedExport(false);
+                  setShowMigrationModal(true);
+                }}
               />
             </motion.div>
           )}
@@ -6143,7 +6395,7 @@ export default function App() {
             <Settings size={18} className="group-hover:rotate-45 transition-transform duration-300" />
             <span>{t('nav.settings')}</span>
           </button>
-          <p className="text-[9px] text-gray-500 mt-2 tracking-widest uppercase font-mono">ColeCollect — v1.0.0</p>
+          <p className="text-[9px] text-gray-500 mt-2 tracking-widest uppercase font-mono">ColeCollect — v{LOCAL_APP_VERSION}</p>
         </div>
       </main>
 
