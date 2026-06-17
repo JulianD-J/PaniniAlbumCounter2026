@@ -69,6 +69,7 @@ import {
   ShieldCheck,
   Repeat,
   AlertTriangle,
+  ArrowUpCircle,
   Database,
   HeartCrack,
   Download,
@@ -174,6 +175,19 @@ function isTrialActive(profile: any) {
   const now = Date.now();
   const sevenDays = 7 * 24 * 60 * 60 * 1000;
   return (now - start) < sevenDays;
+}
+
+function isVersionGreater(serverVer: string, localVer: string): boolean {
+  if (!serverVer) return false;
+  const sParts = serverVer.split('.').map(Number);
+  const lParts = localVer.split('.').map(Number);
+  for (let i = 0; i < Math.max(sParts.length, lParts.length); i++) {
+    const s = sParts[i] || 0;
+    const l = lParts[i] || 0;
+    if (s > l) return true;
+    if (s < l) return false;
+  }
+  return false;
 }
 
 const normalize = (text: string) => 
@@ -1614,6 +1628,7 @@ const StatsTab = ({ inventory, isPremium, onUpgrade, activeAlbum, includeCocaCol
 
   const [teamSearchQuery, setTeamSearchQuery] = useState("");
   const [teamSortBy, setTeamSortBy] = useState<"name" | "progress-desc" | "progress-asc" | "repeated-desc">("progress-desc");
+  const [exchangeProbability, setExchangeProbability] = useState<number>(30);
 
   const [globalAppStats, setGlobalAppStats] = useState<{
     totalUsers: number;
@@ -1747,14 +1762,48 @@ const StatsTab = ({ inventory, isPremium, onUpgrade, activeAlbum, includeCocaCol
     }
 
     // Dynamic advice and smart statistics helpers
+    const finalObtainedExclCC = specialsObtained + teamsObtained;
+    const missingExclCC = 980 - finalObtainedExclCC;
     const missingTotal = grandTotal - finalObtained;
-    const idealPacks = Math.ceil(missingTotal / 5);
     
-    // Statistical expectations using high-fidelity log estimator
+    // Minimum packs assuming ideal case (0 duplicates) - drawing 7 stickers per pack from 980 album
+    const idealPacks = Math.ceil(missingExclCC / 7);
+    
+    // Fast Monte Carlo simulator with Exchange Factor
+    const simulateMonteCarlo = (initialUnique: number, totalStickers: number, packSize: number, exchangeProbabilityRate: number): number => {
+      if (initialUnique >= totalStickers) return 0;
+      let trials = 25; // extremely fast and covers variation beautifully
+      let sum = 0;
+      for (let t = 0; t < trials; t++) {
+        let unique = initialUnique;
+        let packs = 0;
+        while (unique < totalStickers && packs < 3500) {
+          packs++;
+          let newObtainedInPack = 0;
+          for (let i = 0; i < packSize; i++) {
+            const remainingUnobtained = totalStickers - (unique + newObtainedInPack);
+            if (remainingUnobtained <= 0) break;
+            const probNew = remainingUnobtained / totalStickers;
+            if (Math.random() < probNew) {
+              newObtainedInPack++;
+            } else {
+              if (exchangeProbabilityRate > 0 && Math.random() < exchangeProbabilityRate) {
+                if (unique + newObtainedInPack < totalStickers) {
+                  unique++;
+                }
+              }
+            }
+          }
+          unique += newObtainedInPack;
+        }
+        sum += packs;
+      }
+      return Math.ceil(sum / trials);
+    };
+
     let randomPacks = 0;
-    if (missingTotal > 0) {
-      const harmonicSum = Math.log(grandTotal / missingTotal);
-      randomPacks = Math.ceil((grandTotal * harmonicSum) / 5);
+    if (missingExclCC > 0) {
+      randomPacks = simulateMonteCarlo(finalObtainedExclCC, 980, 7, exchangeProbability / 100);
       if (randomPacks < idealPacks) {
         randomPacks = idealPacks;
       }
@@ -1909,7 +1958,7 @@ const StatsTab = ({ inventory, isPremium, onUpgrade, activeAlbum, includeCocaCol
       achievements,
       teamProgress
     };
-  }, [inventory, t, albumCC, isEs, includeCocaColaInStats]);
+  }, [inventory, t, albumCC, isEs, includeCocaColaInStats, exchangeProbability]);
 
   const teamOfTheDay = useMemo(() => {
     if (!stats.teamProgress || stats.teamProgress.length === 0) return null;
@@ -2263,29 +2312,62 @@ const StatsTab = ({ inventory, isPremium, onUpgrade, activeAlbum, includeCocaCol
                   </div>
                 </div>
 
+                {/* Exchange Probability Config Slider */}
+                <div className="p-5 bg-white/[2%] border border-white/5 rounded-2xl space-y-3">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-black text-gray-300 uppercase tracking-wider">
+                      {isEs ? 'Factor de Intercambio Efectivo' : 'Effective Exchange Factor'}
+                    </span>
+                    <span className="text-xs font-mono font-black text-fifa-gold px-2 py-0.5 rounded bg-fifa-gold/10 border border-fifa-gold/20">
+                      {exchangeProbability}%
+                    </span>
+                  </div>
+                  <input 
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="5"
+                    value={exchangeProbability}
+                    onChange={(e) => {
+                      setExchangeProbability(Number(e.target.value));
+                    }}
+                    className="w-full accent-fifa-gold h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[8px] text-gray-500 uppercase font-black tracking-widest">
+                    <span>{isEs ? 'Sin Intercambios (0%)' : 'No Trades (0%)'}</span>
+                    <span>{isEs ? 'Intercambio Perfecto (100%)' : 'Perfect Trading (100%)'}</span>
+                  </div>
+                </div>
+
                 {/* Pack estimation numbers */}
                 <div className="grid grid-cols-2 gap-4">
                   <div className="p-4 bg-white/[2%] border border-white/5 rounded-2xl text-center">
-                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-1">
-                      {isEs ? 'Sobres Mínimos' : 'Ideal Min Packs'}
+                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-1.5">
+                      {isEs ? 'Estimación Mínima' : 'Idle Min Packs'}
                     </span>
-                    <span className="text-2xl font-mono text-cyan-400 font-bold block">
-                      {stats.idealPacks}
+                    <span className="text-lg font-mono text-cyan-400 font-black block leading-none">
+                      {stats.idealPacks} {isEs ? 'Sobres' : 'Packs'}
                     </span>
-                    <span className="text-[9px] text-gray-500 uppercase font-medium mt-1 block">
-                      {isEs ? 'Fórmula sin repetidas' : 'Strict zero-duplicate math'}
+                    <span className="text-[10px] font-bold text-cyan-400/70 block mt-1">
+                      ~{(stats.idealPacks / 104).toFixed(1)} {isEs ? 'Cajas (104 sobres)' : 'Boxes (104 packs)'}
+                    </span>
+                    <span className="text-[8px] text-gray-500 uppercase font-bold mt-2.5 block leading-normal border-t border-white/5 pt-1.5">
+                      {isEs ? 'Cálculo sin repetidas' : 'Ideal zero duplicate list'}
                     </span>
                   </div>
 
                   <div className="p-4 bg-white/[2%] border border-white/5 rounded-2xl text-center">
-                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-1">
+                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-1.5">
                       {isEs ? 'Sobres Estimados' : 'Packs Expected'}
                     </span>
-                    <span className="text-2xl font-mono text-purple-400 font-bold block">
-                      {stats.randomPacks}
+                    <span className="text-lg font-mono text-purple-400 font-black block leading-none">
+                      {stats.randomPacks} {isEs ? 'Sobres' : 'Packs'}
                     </span>
-                    <span className="text-[9px] text-gray-500 uppercase font-medium mt-1 block">
-                      {isEs ? 'Por estadística aleatoria' : 'Stochastic probability math'}
+                    <span className="text-[10px] font-bold text-purple-400/70 block mt-1">
+                      ~{(stats.randomPacks / 104).toFixed(1)} {isEs ? 'Cajas (104 sobres)' : 'Boxes (104 packs)'}
+                    </span>
+                    <span className="text-[8px] text-gray-500 uppercase font-bold mt-2.5 block leading-normal border-t border-white/5 pt-1.5">
+                      {isEs ? 'Monte Carlo Dinámico' : 'Dynamic Monte Carlo'}
                     </span>
                   </div>
                 </div>
@@ -2389,9 +2471,9 @@ const StatsTab = ({ inventory, isPremium, onUpgrade, activeAlbum, includeCocaCol
           </motion.div>
         </div>
 
-        {/* Section categories distribution & Continents */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <motion.div variants={itemVariants} className="lg:col-span-2 fifa-card p-8 bg-black/40 backdrop-blur-xl border-white/5">
+        {/* Section categories distribution */}
+        <div id="section-categories-distribution-section" className="w-full">
+          <motion.div variants={itemVariants} className="w-full fifa-card p-8 bg-black/40 backdrop-blur-xl border-white/5">
             <h3 className="font-display font-bold text-xl mb-8 flex items-center gap-3">
               <div className="p-2 bg-fifa-gold/10 rounded-xl">
                 <PieChartIcon className="text-fifa-gold" size={20} />
@@ -2449,98 +2531,6 @@ const StatsTab = ({ inventory, isPremium, onUpgrade, activeAlbum, includeCocaCol
                   </div>
                 ))}
               </div>
-            </div>
-          </motion.div>
-
-          {/* Region Progress Chart */}
-          <motion.div variants={itemVariants} className="fifa-card p-8 bg-black/40 backdrop-blur-xl border-white/5">
-             <h3 className="font-display font-bold text-xl mb-6 flex items-center gap-3">
-              <div className="p-2 bg-blue-500/10 rounded-xl">
-                <BarChart3 className="text-blue-400" size={20} />
-              </div>
-              {t('stats.region_progress')}
-            </h3>
-            
-            <div className="h-[240px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={stats.regionStats.map(r => ({ ...r, displayName: (() => {
-                    if (isEs) {
-                      if (r.name === "Americas") return "Américas";
-                      if (r.name === "Europe") return "Europa";
-                      if (r.name === "Africa") return "África";
-                      if (r.name === "Asia / Oceania") return "Asia/Oceanía";
-                    }
-                    return r.name;
-                  })() }))}
-                  margin={{ top: 10, right: 10, left: -25, bottom: 0 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.05)" vertical={false} />
-                  <XAxis 
-                    dataKey="displayName" 
-                    stroke="rgba(255, 255, 255, 0.3)" 
-                    fontSize={10} 
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <YAxis 
-                    stroke="rgba(255, 255, 255, 0.3)" 
-                    fontSize={10} 
-                    tickLine={false}
-                    axisLine={false}
-                    domain={[0, 100]}
-                    tickFormatter={(v) => `${v}%`}
-                  />
-                  <RechartsTooltip
-                    contentStyle={{ backgroundColor: '#111', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px' }}
-                    formatter={(value: any) => [`${value}%`, isEs ? 'Progreso' : 'Progress']}
-                    labelStyle={{ color: '#fff', fontWeight: 'bold' }}
-                  />
-                  <Bar 
-                    dataKey="percentage" 
-                    radius={[6, 6, 0, 0]}
-                    isAnimationActive={true}
-                    animationBegin={200}
-                    animationDuration={1400}
-                    animationEasing="ease-out"
-                  >
-                    {stats.regionStats.map((entry, index) => {
-                      const colors = [
-                        '#3b82f6', // Americas: Blue
-                        '#8b5cf6', // Europe: Purple
-                        '#10b981', // Africa: Emerald
-                        '#f59e0b', // Asia/Oceania: Amber
-                      ];
-                      return <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />;
-                    })}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-
-            {/* Region Stats Quick Grid Info */}
-            <div className="grid grid-cols-2 gap-3 mt-6">
-              {stats.regionStats.map((region, i) => {
-                const colors = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b'];
-                const displayName = (() => {
-                  if (isEs) {
-                    if (region.name === "Americas") return "Américas";
-                    if (region.name === "Europe") return "Europa";
-                    if (region.name === "Africa") return "África";
-                    if (region.name === "Asia / Oceania") return "Asia/Oceanía";
-                  }
-                  return region.name;
-                })();
-                return (
-                  <div key={i} className="flex justify-between items-center text-[11px] bg-white/[0.02] border border-white/5 p-2 rounded-xl">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: colors[i % colors.length] }} />
-                      <span className="text-gray-400 font-medium truncate">{displayName}</span>
-                    </div>
-                    <span className="text-white font-mono font-bold shrink-0">{region.percentage}%</span>
-                  </div>
-                );
-              })}
             </div>
           </motion.div>
         </div>
@@ -2749,7 +2739,8 @@ const CommunityView = ({
   userInventory: Record<string, any>,
   activeAlbum: any
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const isEs = i18n.language.startsWith('es');
   const [search, setSearch] = useState("");
   const [results, setResults] = useState<any[]>([]);
   const [friends, setFriends] = useState<any[]>([]);
@@ -2769,6 +2760,13 @@ const CommunityView = ({
   const [showQRModal, setShowQRModal] = useState(false);
   const [generatedQRString, setGeneratedQRString] = useState("");
   const [copiedQRLink, setCopiedQRLink] = useState(false);
+
+  // New offline PIN confirmation states
+  const [friendAlbumId, setFriendAlbumId] = useState<string | null>(null);
+  const [showConsentModal, setShowConsentModal] = useState(false);
+  const [consentPin, setConsentPin] = useState("");
+  const [pinError, setPinError] = useState("");
+  const [isSwapSuccess, setIsSwapSuccess] = useState(false);
 
   useEffect(() => {
     loadFriends();
@@ -2812,15 +2810,91 @@ const CommunityView = ({
     setComparing(true);
     const albums = await albumService.getAlbums(friend.id);
     if (albums && albums.length > 0) {
+      setFriendAlbumId(albums[0].id);
       const inv = await albumService.getAlbumInventory(albums[0].id);
       setFriendInventory(inv || {});
     } else {
+      setFriendAlbumId(null);
       setFriendInventory({});
     }
     setComparing(false);
     setSelectedToGive([]);
     setSelectedToGet([]);
   };
+
+  const calculatedPin = useMemo(() => {
+    const listGive = [...selectedToGive].sort();
+    const listGet = [...selectedToGet].sort();
+    const combinedStr = `${listGive.join(',')}|${listGet.join(',')}`;
+    
+    let hash = 0;
+    const prime = 31;
+    for (let i = 0; i < combinedStr.length; i++) {
+      hash = (hash * prime + combinedStr.charCodeAt(i)) % 10000007;
+    }
+    const pinNum = hash % 10000;
+    return String(pinNum).padStart(4, '0');
+  }, [selectedToGive, selectedToGet]);
+
+  const handlePrepareApplyTrade = () => {
+    if (selectedToGive.length === 0 && selectedToGet.length === 0) {
+      alert(isEs ? "Por favor, selecciona al menos una lámina para realizar el intercambio." : "Please select at least one sticker to perform the swap.");
+      return;
+    }
+    setConsentPin("");
+    setPinError("");
+    setIsSwapSuccess(false);
+    setShowConsentModal(true);
+  };
+
+  const handlePressDigit = (digit: string) => {
+    if (consentPin.length < 4) {
+      setConsentPin(prev => prev + digit);
+    }
+  };
+
+  const handleCommitDirectTrade = async () => {
+    if (!activeAlbum?.id || !friendAlbumId || !selectedFriend) return;
+    setSwapping('direct');
+    try {
+      await albumService.executeDirectMaturitySwap(
+        activeAlbum.id,
+        friendAlbumId,
+        selectedToGive,
+        selectedToGet
+      );
+      
+      setLastSwapped({ give: selectedToGive, get: selectedToGet });
+      setIsSwapSuccess(true);
+      
+      confetti({
+        particleCount: 150,
+        spread: 80,
+        origin: { y: 0.6 },
+        colors: ['#FFD700', '#1A73E8', '#10B981']
+      });
+    } catch (e) {
+      console.error(e);
+      alert(isEs ? "Error al procesar el intercambio directo." : "Error processing direct trade.");
+    } finally {
+      setSwapping(null);
+    }
+  };
+
+  useEffect(() => {
+    if (consentPin.length === 4) {
+      if (consentPin === calculatedPin) {
+        handleCommitDirectTrade();
+      } else {
+        setPinError(isEs ? "El PIN no coincide. Confirma el trato con tu amigo." : "PIN doesn't match. Verify trade with your friend.");
+        const timer = setTimeout(() => {
+          setConsentPin("");
+          setPinError("");
+        }, 2500);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [consentPin, calculatedPin, isEs]);
 
   const comparison = useMemo(() => {
     const give: string[] = [];
@@ -3070,175 +3144,406 @@ const CommunityView = ({
         {/* Comparison View */}
         <div className="md:col-span-2">
           {selectedFriend ? (
-            <div className="fifa-card p-6">
+            <div className="bg-[#1E1E1E] border border-white/5 rounded-3xl p-6 shadow-xl relative overflow-hidden animate-fade-in">
               {comparing ? (
-                <div className="flex justify-center py-12"><div className="w-8 h-8 border-2 border-fifa-gold border-t-transparent rounded-full animate-spin" /></div>
+                <div className="flex justify-center py-12">
+                  <div className="w-8 h-8 border-2 border-[#FFD700] border-t-transparent rounded-full animate-spin" />
+                </div>
               ) : (
-                <>
-                  <div className="flex items-center justify-between gap-4 mb-8 pb-6 border-b border-white/5">
+                <div className="space-y-6">
+                  {/* ENCABEZADO DINÁMICO */}
+                  <div className="flex items-center justify-between gap-4 pb-6 border-b border-white/5">
                     <div className="flex items-center gap-4">
-                      <div className="w-16 h-16 rounded-full border-2 border-fifa-gold overflow-hidden flex items-center justify-center bg-white/5">
-                        {selectedFriend.photoURL ? <img src={selectedFriend.photoURL} className="w-full h-full object-cover" alt="" /> : <span className="text-xl font-bold text-fifa-gold">{selectedFriend.displayName?.[0]}</span>}
+                      {/* Avatar redondo con borde dorado */}
+                      <div className="w-16 h-16 rounded-full border-2 border-[#FFD700] overflow-hidden flex items-center justify-center bg-white/5 shrink-0 shadow-lg">
+                        {selectedFriend.photoURL ? (
+                          <img src={selectedFriend.photoURL} className="w-full h-full object-cover" alt="" referrerPolicy="no-referrer" />
+                        ) : (
+                          <span className="text-xl font-bold text-[#FFD700]">{selectedFriend.displayName?.[0]?.toUpperCase() || 'U'}</span>
+                        )}
                       </div>
+                      
                       <div>
-                        <h3 className="font-display font-bold text-2xl text-white">{t('bazar.match_title')}</h3>
-                        <p className="text-gray-400">{t('bazar.matching_with')} {selectedFriend.displayName}</p>
+                        {/* Título y subtítulo */}
+                        <h3 className="font-display font-black text-2xl text-white tracking-tight">
+                          {isEs ? "Match de Intercambio" : "Swap Match"}
+                        </h3>
+                        <p className="text-gray-400 text-sm">
+                          {isEs ? "Comparando con" : "Comparing with"} <span className="text-white font-bold">{selectedFriend.displayName}</span>
+                        </p>
                       </div>
                     </div>
+
+                    {/* Botones circulares flotantes de compartir y favorito */}
                     <div className="flex items-center gap-2">
                       {friendIds.includes(selectedFriend.id) && (
                         <button 
                           onClick={handleShare}
-                          className="p-3 bg-fifa-gold text-black rounded-full hover:scale-110 active:scale-95 transition-all flex items-center justify-center shadow-lg relative"
+                          className="p-3 bg-[#1e1e1e] text-[#FFD700] hover:text-black hover:bg-[#FFD700] border border-[#FFD700]/20 rounded-full hover:scale-110 active:scale-95 transition-all flex items-center justify-center shadow-lg relative"
                           title={t('bazar.share_tooltip')}
                         >
-                          {copying ? <Check size={24} /> : <Share2 size={24} />}
+                          {copying ? <Check size={20} /> : <Share2 size={20} />}
                           {copying && (
                             <motion.span 
                               initial={{ opacity: 0, y: 10 }}
-                              animate={{ opacity: 1, y: -40 }}
-                              className="absolute bg-white text-black text-[10px] font-bold px-2 py-1 rounded"
+                              animate={{ opacity: 1, y: -45 }}
+                              className="absolute bg-white text-black text-[10px] font-bold px-2 py-1 rounded shadow-lg"
                             >
                               {t('bazar.copied')}
                             </motion.span>
                           )}
                         </button>
                       )}
+                      
                       <button 
                         onClick={(e) => toggleFavorite(e, selectedFriend.id)}
-                        className={`p-3 rounded-full transition-all ${friendIds.includes(selectedFriend.id) ? 'bg-fifa-gold/10 text-fifa-gold' : 'bg-white/5 text-gray-500 hover:text-fifa-gold'}`}
+                        className={`p-3 rounded-full border transition-all ${friendIds.includes(selectedFriend.id) ? 'bg-[#FFD700]/10 border-[#FFD700]/30 text-[#FFD700] hover:bg-[#FFD700]/20' : 'bg-white/5 border-white/5 text-gray-500 hover:text-[#FFD700]'}`}
                       >
-                        <Star size={24} className={friendIds.includes(selectedFriend.id) ? 'fill-fifa-gold' : ''} />
+                        <Star size={20} className={friendIds.includes(selectedFriend.id) ? 'fill-[#FFD700]' : ''} />
                       </button>
                     </div>
                   </div>
 
-                  <p className="text-xs text-gray-500 mb-6 italic">
-                    💡 Haz clic en las láminas para seleccionarlas y compartirlas por mensaje. Si no seleccionas ninguna, se enviará la lista completa.
-                  </p>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
-                    <motion.div 
-                      initial={{ x: -20, opacity: 0 }}
-                      animate={{ x: 0, opacity: 1 }}
-                      className="space-y-4"
-                    >
-                      <div className="flex items-center justify-between">
-                        <h4 className="font-bold text-fifa-gold flex items-center gap-2">
-                          <CheckCircle2 size={18} /> {t('bazar.you_give')}
-                        </h4>
-                        <span className="bg-fifa-gold/20 text-fifa-gold px-2 py-0.5 rounded text-xs font-bold">{comparison.give.length}</span>
-                      </div>
-                      <div className="flex flex-wrap gap-2 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar p-1">
-                        {comparison.give.length > 0 ? comparison.give.map((c, i) => (
-                          <motion.button 
-                            key={c}
-                            initial={{ scale: 0 }}
-                            animate={{ scale: 1 }}
-                            transition={{ delay: i * 0.01 }}
-                            onClick={() => toggleSelectToGive(c)}
-                            whileHover={{ scale: 1.1, rotate: 2 }}
-                            whileTap={{ scale: 0.9 }}
-                            className={`px-3 py-1.5 rounded text-[10px] font-mono font-bold border-2 transition-all relative ${lastSwapped?.give.includes(c) ? 'bg-green-500/20 border-green-500 text-green-500 scale-110 z-10' : selectedToGive.includes(c) ? 'bg-fifa-gold text-black border-fifa-gold shadow-lg shadow-fifa-gold/20' : 'bg-white/5 text-white border-white/5 hover:border-fifa-gold/30'}`}
-                          >
-                            {c}
-                            {selectedToGive.includes(c) && <Check size={10} className="inline ml-1" />}
-                            {lastSwapped?.give.includes(c) && <motion.div layoutId={`gave-${c}`} className="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full" />}
-                            {/* Shine for special codes in comparison */}
-                            {(c.startsWith('FWC') || c.startsWith('CC')) && (
-                              <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/10 to-transparent -translate-x-full animate-shimmer opacity-40 pointer-events-none" />
-                            )}
-                          </motion.button>
-                        )) : <p className="text-xs text-gray-500 italic pb-4">{t('bazar.no_repeated_to_give')}</p>}
-                      </div>
-                    </motion.div>
-
-                    <motion.div 
-                      initial={{ x: 20, opacity: 0 }}
-                      animate={{ x: 0, opacity: 1 }}
-                      className="space-y-4"
-                    >
-                      <div className="flex items-center justify-between">
-                        <h4 className="font-bold text-fifa-red flex items-center gap-2">
-                          <PlusCircle size={18} /> {t('bazar.they_give')}
-                        </h4>
-                        <span className="bg-fifa-red/20 text-fifa-red px-2 py-0.5 rounded text-xs font-bold">{comparison.get.length}</span>
-                      </div>
-                      <div className="flex flex-wrap gap-2 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar p-1">
-                        {comparison.get.length > 0 ? comparison.get.map((c, i) => (
-                          <motion.button 
-                            key={c}
-                            initial={{ scale: 0 }}
-                            animate={{ scale: 1 }}
-                            transition={{ delay: i * 0.01 }}
-                            onClick={() => toggleSelectToGet(c)}
-                            whileHover={{ scale: 1.1, rotate: -2 }}
-                            whileTap={{ scale: 0.9 }}
-                            className={`px-3 py-1.5 rounded text-[10px] font-mono font-bold border-2 transition-all relative ${lastSwapped?.get.includes(c) ? 'bg-blue-500/20 border-blue-500 text-blue-500 scale-110 z-10' : selectedToGet.includes(c) ? 'bg-fifa-red text-white border-fifa-red shadow-lg shadow-fifa-red/20' : 'bg-white/5 text-white border-white/5 hover:border-fifa-red/30'}`}
-                          >
-                            {c}
-                            {selectedToGet.includes(c) && <Check size={10} className="inline ml-1" />}
-                            {lastSwapped?.get.includes(c) && <motion.div layoutId={`got-${c}`} className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full" />}
-                            {(c.startsWith('FWC') || c.startsWith('CC')) && (
-                              <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/10 to-transparent -translate-x-full animate-shimmer opacity-40 pointer-events-none" />
-                            )}
-                          </motion.button>
-                        )) : <p className="text-xs text-gray-500 italic pb-4">{t('bazar.no_repeated_to_get')}</p>}
-                      </div>
-                    </motion.div>
+                  {/* Contenedor de ayuda con borde/fondo gris-azulado sutil */}
+                  <div className="bg-cyan-950/20 border border-cyan-800/30 text-cyan-300 p-4 rounded-2xl flex items-start gap-4 text-xs leading-relaxed">
+                    <span className="text-base mt-0.5">💡</span>
+                    <p>
+                      {isEs 
+                        ? "Haz clic en las láminas para seleccionarlas y realizar el intercambio directo. Elige exactamente qué estampas desean intercambiar." 
+                        : "Click stickers to select them for the direct swap dynamic. Select exactly what you both agreed to trade."}
+                    </p>
                   </div>
 
+                  {/* CUERPO EN FILAS HORIZONTALES */}
                   <div className="space-y-6">
-                    {friendMessages.length > 0 && (
-                      <div className="space-y-3">
-                        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest px-2">Historial de Intercambios</p>
-                        <div className="space-y-2 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
-                          {friendMessages.map(msg => (
-                            <div 
-                              key={msg.id}
-                              className={`p-4 rounded-xl border ${msg.from === currentUser.uid ? 'bg-white/5 border-white/5 ml-8' : 'bg-fifa-gold/5 border-fifa-gold/20 mr-8'} ${msg.status === 'completed' ? 'opacity-50' : ''}`}
-                            >
-                              <div className="flex justify-between items-start mb-2">
-                                <p className="text-[10px] font-bold text-gray-500">{new Date(msg.createdAt?.seconds * 1000).toLocaleString()}</p>
-                                {msg.status === 'completed' && <span className="text-[10px] font-bold text-green-500 uppercase flex items-center gap-1"><Check size={10}/> {t('bazar.completed')}</span>}
-                              </div>
-                              <p className="text-sm whitespace-pre-wrap mb-4">{msg.text}</p>
-                              
-                              {msg.status === 'pending' && msg.to === currentUser.uid && (
+                    {/* FILA 1: Él te puede dar (Recibir) */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-display font-black text-xs text-[#FFD700] uppercase tracking-wider flex items-center gap-2">
+                          <PlusCircle size={16} className="text-[#FFD700]" />
+                          {isEs ? "Él te puede dar" : "They can give you"}
+                        </h4>
+                        <span className="bg-[#FFD700]/10 text-[#FFD700] border border-[#FFD700]/20 px-2 py-0.5 rounded-full text-[10px] font-black font-mono">
+                          {comparison.get.length}
+                        </span>
+                      </div>
+                      
+                      <div className="bg-black/20 p-4 rounded-2xl border border-white/5">
+                        {comparison.get.length > 0 ? (
+                          <div className="flex flex-wrap gap-2">
+                            {comparison.get.map((c) => {
+                              const isSelected = selectedToGet.includes(c);
+                              return (
                                 <button 
-                                  onClick={() => handleCompleteSwap(msg)}
-                                  disabled={!!swapping}
-                                  className={`w-full font-bold py-2 rounded-lg text-sm hover:scale-[1.02] active:scale-95 transition-all shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 ${confirmingMsgId === msg.id ? 'bg-fifa-red text-white animate-pulse' : 'bg-fifa-gold text-black'}`}
+                                  key={c}
+                                  onClick={() => toggleSelectToGet(c)}
+                                  className={`px-3 py-1.5 rounded-xl text-[10px] font-mono font-bold border transition-all flex items-center gap-1.5 active:scale-95 ${
+                                    isSelected 
+                                      ? 'bg-[#FFD700] text-black border-[#FFD700] shadow-lg shadow-[#FFD700]/15' 
+                                      : 'bg-white/[3%] text-gray-400 border-white/5 hover:border-[#FFD700]/30'
+                                  }`}
                                 >
-                                  {swapping === msg.id ? (
-                                    <>
-                                      <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
-                                      {t('bazar.processing')}
-                                    </>
-                                  ) : confirmingMsgId === msg.id ? (
-                                    t('bazar.confirm_swap')
-                                  ) : (
-                                    t('bazar.swap_done')
-                                  )}
+                                  {c}
+                                  {isSelected && <Check size={10} strokeWidth={3} />}
                                 </button>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="text-center py-4 text-gray-500 text-xs italic">
+                            {isEs ? "No tiene repetidas que te falten" : "They don't have duplicates you need"}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* FILA 2: Tú le puedes dar (Entregar) */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-display font-black text-xs text-blue-400 uppercase tracking-wider flex items-center gap-2">
+                          <CheckCircle2 size={16} className="text-blue-400" />
+                          {isEs ? "Tú le puedes dar" : "You can give them"}
+                        </h4>
+                        <span className="bg-blue-400/10 text-blue-400 border border-blue-400/20 px-2 py-0.5 rounded-full text-[10px] font-black font-mono">
+                          {comparison.give.length}
+                        </span>
+                      </div>
+
+                      <div className="bg-black/20 p-4 rounded-2xl border border-white/5">
+                        {comparison.give.length > 0 ? (
+                          <div className="flex flex-wrap gap-2">
+                            {comparison.give.map((c) => {
+                              const isSelected = selectedToGive.includes(c);
+                              return (
+                                <button 
+                                  key={c}
+                                  onClick={() => toggleSelectToGive(c)}
+                                  className={`px-3 py-1.5 rounded-xl text-[10px] font-mono font-bold border transition-all flex items-center gap-1.5 active:scale-95 ${
+                                    isSelected 
+                                      ? 'bg-blue-500 text-white border-blue-500 shadow-lg shadow-blue-500/15' 
+                                      : 'bg-white/[3%] text-gray-400 border-white/5 hover:border-blue-400/30'
+                                  }`}
+                                >
+                                  {c}
+                                  {isSelected && <Check size={10} strokeWidth={3} />}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="text-center py-4 text-gray-500 text-xs italic">
+                            {isEs ? "No tienes repetidas que le falten" : "You don't have duplicates they need"}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* PIE DE PÁGINA Y ACCIONES */}
+                  <div className="pt-4 border-t border-white/5 space-y-3">
+                    {/* Botón de Acción Principal */}
+                    <button
+                      onClick={handlePrepareApplyTrade}
+                      className="w-full bg-[#1A73E8] hover:bg-[#1A73E8]/90 text-white font-display font-black uppercase text-xs tracking-wider py-4 px-6 rounded-2xl transition-all hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-2 shadow-lg shadow-blue-900/20"
+                    >
+                      <Repeat size={18} />
+                      {isEs 
+                        ? `Sellar cambio (${selectedToGive.length} por ${selectedToGet.length})` 
+                        : `Seal trade (${selectedToGive.length} for ${selectedToGet.length})`}
+                    </button>
+
+                    {/* Fila de Control Inferior */}
+                    <div className="flex items-center justify-between gap-4 pt-1">
+                      <button
+                        onClick={() => setSelectedFriend(null)}
+                        className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-black uppercase tracking-wider text-gray-400 hover:text-white transition-colors"
+                      >
+                        <X size={15} />
+                        {isEs ? "Cancelar / Cerrar" : "Cancel / Close"}
+                      </button>
+
+                      <button
+                        onClick={handlePrepareApplyTrade}
+                        className="flex items-center gap-1.5 px-5 py-2.5 text-xs font-black uppercase tracking-wider text-white bg-green-600 hover:bg-green-700 rounded-xl transition-all shadow-md shadow-green-900/20 active:scale-95"
+                      >
+                        <Check size={15} />
+                        {isEs ? "Aplicar cambios" : "Apply changes"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Historial de Intercambios */}
+                  {friendMessages.length > 0 && (
+                    <div className="space-y-3 pt-4 border-t border-white/5">
+                      <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest px-2">
+                        {isEs ? "Historial de Intercambios" : "Swap History"}
+                      </p>
+                      
+                      <div className="space-y-2 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
+                        {friendMessages.map(msg => (
+                          <div 
+                            key={msg.id}
+                            className={`p-4 rounded-2xl border ${msg.from === currentUser.uid ? 'bg-white/5 border-white/5 ml-8' : 'bg-[#FFD700]/5 border-[#FFD700]/10 mr-8'} ${msg.status === 'completed' ? 'opacity-50' : ''}`}
+                          >
+                            <div className="flex justify-between items-start mb-2">
+                              <p className="text-[10px] font-bold text-gray-500">
+                                {new Date(msg.createdAt?.seconds * 1000).toLocaleString()}
+                              </p>
+                              {msg.status === 'completed' && (
+                                <span className="text-[10px] font-bold text-green-500 uppercase flex items-center gap-1">
+                                  <Check size={10}/> {t('bazar.completed')}
+                                </span>
                               )}
                             </div>
-                          ))}
-                        </div>
+                            
+                            <p className="text-sm text-gray-300 whitespace-pre-wrap mb-4">{msg.text}</p>
+                            
+                            {msg.status === 'pending' && msg.to === currentUser.uid && (
+                              <button 
+                                onClick={() => handleCompleteSwap(msg)}
+                                disabled={!!swapping}
+                                className={`w-full font-bold py-2.5 rounded-xl text-sm hover:scale-[1.02] active:scale-95 transition-all shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 ${confirmingMsgId === msg.id ? 'bg-red-600 text-white animate-pulse font-display text-xs tracking-wider uppercase' : 'bg-[#FFD700] text-black font-display text-xs tracking-wider uppercase'}`}
+                              >
+                                {swapping === msg.id ? (
+                                  <>
+                                    <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                                    {t('bazar.processing')}
+                                  </>
+                                ) : confirmingMsgId === msg.id ? (
+                                  t('bazar.confirm_swap')
+                                ) : (
+                                  t('bazar.swap_done')
+                                )}
+                              </button>
+                            )}
+                          </div>
+                        ))}
                       </div>
-                    )}
-                  </div>
-                </>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           ) : (
-            <div className="fifa-card p-12 text-center flex flex-col items-center justify-center h-full text-gray-500">
-              <Users size={48} className="mb-4 opacity-20" />
-              <p>Selecciona un amigo para ver qué láminas pueden intercambiar.</p>
+            <div className="bg-[#1E1E1E] border border-white/5 rounded-3xl p-12 text-center flex flex-col items-center justify-center h-full text-gray-500 min-h-[350px]">
+              <Users size={48} className="mb-4 text-[#FFD700] opacity-40" />
+              <p className="text-sm font-medium text-gray-200">
+                {isEs ? "Selecciona un amigo para ver qué láminas pueden intercambiar." : "Select a friend to see available sticker matches."}
+              </p>
             </div>
           )}
         </div>
       </div>
+
+      {/* Consent physical/mathematical verification modal */}
+      <AnimatePresence>
+        {showConsentModal && (
+          <div className="fixed inset-0 z-[190] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/85 backdrop-blur-md"
+              onClick={() => {
+                if (!isSwapSuccess) {
+                  setShowConsentModal(false);
+                }
+              }}
+            />
+
+            <motion.div 
+              initial={{ scale: 0.95, y: 15, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.95, y: 15, opacity: 0 }}
+              className="bg-[#1E1E1E] border border-white/10 rounded-3xl p-6 max-w-sm w-full shadow-2xl relative z-10 text-center text-white"
+            >
+              {!isSwapSuccess ? (
+                <>
+                  <button 
+                    onClick={() => setShowConsentModal(false)}
+                    className="absolute right-4 top-4 text-gray-500 hover:text-white transition-colors"
+                  >
+                    <X size={18} />
+                  </button>
+
+                  <div className="w-12 h-12 bg-[#FFD700]/10 border border-[#FFD700]/20 rounded-2xl flex items-center justify-center mx-auto mb-4 mt-2">
+                    <CheckCircle2 className="text-[#FFD700]" size={24} />
+                  </div>
+
+                  <h3 className="text-lg font-display font-black text-white tracking-tight mb-2 uppercase">
+                    {isEs ? "Doble Verificación" : "Double Verification"}
+                  </h3>
+                  
+                  <p className="text-xs text-gray-400 leading-relaxed px-2 mb-4">
+                    {isEs 
+                      ? `Para confirmar, ingresa el PIN de 4 dígitos que aparece en la pantalla de ${selectedFriend.displayName}.` 
+                      : `To confirm, enter the 4-digit PIN that appears on the screen of ${selectedFriend.displayName}.`}
+                  </p>
+
+                  {/* Expected local calculated PIN display for the friend */}
+                  <div className="bg-white/[2%] border border-white/5 p-3 rounded-2xl mb-4">
+                    <span className="text-[10px] text-gray-500 block uppercase font-black tracking-widest mb-1">
+                      {isEs ? "Tu PIN de este intercambio" : "Your PIN for this trade"}
+                    </span>
+                    <strong className="text-2xl font-mono text-[#FFD700] tracking-widest">{calculatedPin}</strong>
+                    <span className="text-[9px] text-gray-500 block mt-1 leading-normal">
+                      {isEs 
+                        ? "Tu amigo verá exactamente este PIN en su pantalla si tiene seleccionadas las mismas láminas."
+                        : "Your friend will see this exact PIN on their screen if they have selected the same stickers."}
+                    </span>
+                  </div>
+
+                  {/* 4 PIN digits input view */}
+                  <div className="flex justify-center gap-3 my-5">
+                    {[0, 1, 2, 3].map((idx) => (
+                      <div 
+                        key={idx} 
+                        className={`w-12 h-14 rounded-xl border-2 flex items-center justify-center font-display font-black text-xl transition-all ${
+                          consentPin.length > idx 
+                            ? 'border-[#FFD700] text-white bg-[#FFD700]/10 shadow-lg shadow-[#FFD700]/10' 
+                            : 'border-white/10 text-gray-500 bg-white/[1%]'
+                        }`}
+                      >
+                        {consentPin[idx] || ""}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Pin Error message */}
+                  {pinError && (
+                    <p className="text-xs text-red-400 font-bold mb-4 animate-bounce leading-normal px-2">
+                      ⚠️ {pinError}
+                    </p>
+                  )}
+
+                  {/* Custom Numeric Keypad */}
+                  <div className="grid grid-cols-3 gap-3 max-w-[240px] mx-auto mb-2">
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
+                      <button
+                        key={num}
+                        type="button"
+                        onClick={() => handlePressDigit(String(num))}
+                        className="w-14 h-14 rounded-full bg-white/5 border border-white/5 hover:bg-white/10 text-white font-display font-black text-lg flex items-center justify-center active:scale-90 transition-all shadow-sm"
+                      >
+                        {num}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => setConsentPin("")}
+                      className="w-14 h-14 rounded-full bg-white/5 border border-white/5 text-[9px] text-red-400 font-black flex items-center justify-center active:scale-90 transition-all uppercase tracking-wider"
+                    >
+                      {isEs ? "Borrar" : "Clear"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handlePressDigit("0")}
+                      className="w-14 h-14 rounded-full bg-white/5 border border-white/5 hover:bg-white/10 text-white font-display font-black text-lg flex items-center justify-center active:scale-90 transition-all shadow-sm"
+                    >
+                      0
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConsentPin(prev => prev.slice(0, -1))}
+                      className="w-14 h-14 rounded-full bg-white/5 border border-[#FFD700]/20 text-lg text-gray-400 flex items-center justify-center active:scale-90 transition-all"
+                    >
+                      ⌫
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="py-6 space-y-5">
+                  <div className="w-16 h-16 bg-green-500/15 border border-green-500/30 rounded-full flex items-center justify-center mx-auto animate-bounce">
+                    <Check className="text-green-500" size={32} strokeWidth={3} />
+                  </div>
+
+                  <h3 className="text-xl font-display font-black text-white uppercase tracking-tight">
+                    {isEs ? "¡Trato Exitoso!" : "Swap Successful!"}
+                  </h3>
+
+                  <p className="text-xs text-gray-300 leading-relaxed px-4">
+                    {isEs 
+                      ? `Has completado el intercambio con ${selectedFriend.displayName} correctamente. Sus inventarios locales se han actualizado.` 
+                      : `You have successfully completed the trade with ${selectedFriend.displayName}. Your local album inventories have been updated.`}
+                  </p>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowConsentModal(false);
+                      setIsSwapSuccess(false);
+                      setSelectedFriend(null);
+                    }}
+                    className="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-display font-black text-xs uppercase tracking-wider rounded-xl transition-all active:scale-[0.98] shadow-lg shadow-green-900/10"
+                  >
+                    {isEs ? "Excelente" : "Awesome"}
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* QR Code Modal */}
       <AnimatePresence>
@@ -3409,7 +3714,9 @@ export default function App() {
     announcementText: "",
     announcementTextEs: "",
     announcementTextEn: "",
-    maintenanceModeEnabled: false
+    maintenanceModeEnabled: false,
+    appVersion: "1.0.0",
+    changelog: ""
   });
 
   const currentAnnouncementText = useMemo(() => {
@@ -3981,6 +4288,15 @@ export default function App() {
     setAuthLoading(true);
     setError("");
     try {
+      const devIdNative = await albumService.getDeviceId(true);
+      if (!devIdNative) {
+        const errMsg = isEs 
+          ? "No se pudo leer el ID de la placa del celular. Por seguridad y prevención de fraudes, la creación de cuentas anónimas/invitado se encuentra bloqueada por completo en tu dispositivo si no se detecta un hardware de Android real."
+          : "Unable to read device hardware ID. Security prevents anonymous activation without unique Android hardware verification on this device.";
+        alert(errMsg);
+        setError(errMsg);
+        return;
+      }
       await signInAnonymously(auth);
     } catch (e: any) {
       console.error(e);
@@ -3994,11 +4310,23 @@ export default function App() {
 
   const navigateView = (v: 'collection' | 'community' | 'stats') => {
     hapticFeedback(ImpactStyle.Light);
+    if (v === 'community' && user?.isAnonymous) {
+      alert(isEs
+        ? "La pestaña de Comunidad y el escáner/intercambio de Códigos QR están deshabilitados en el Modo Temporal. Por favor regístrate para usar estas funciones avanzadas."
+        : "The Community tab and QR Code comparisons are disabled in Temporal Mode. Please register a real account.");
+      return;
+    }
     setView(v);
   };
 
   const handleCreateAlbum = async () => {
     if (!user) return;
+    if (user.isAnonymous) {
+      alert(isEs 
+        ? "La creación de múltiples álbumes está deshabilitada en el Modo Temporal. Por favor regístrate para habilitar esta característica."
+        : "Creating multiple albums is disabled in Temporal Mode. Please register to unlock this feature.");
+      return;
+    }
     const albumLimit = isPremium ? 3 : 1;
     if (albums.length >= albumLimit) {
       setError(t('album.album_limit_reached'));
@@ -4048,6 +4376,12 @@ export default function App() {
 
   const handleDeleteAlbum = async (albumId: string) => {
     if (!user) return;
+    if (user.isAnonymous) {
+      alert(isEs 
+        ? "El borrado de álbumes de la nube está deshabilitado en el Modo Temporal."
+        : "Deleting cloud albums is disabled in Temporal Mode.");
+      return;
+    }
     
     const confirmMsg = i18n.language.startsWith('es')
       ? "¿Estás seguro de que quieres borrar este álbum? Se perderá todo su inventario."
@@ -4076,6 +4410,12 @@ export default function App() {
 
   const handleRenameAlbum = async (albumId: string, newName: string) => {
     if (!user || !newName.trim()) return;
+    if (user.isAnonymous) {
+      alert(isEs 
+        ? "No se permiten renombrar álbumes en el Modo Temporal."
+        : "Renaming albums is disabled in Temporal Mode.");
+      return;
+    }
     try {
       await albumService.updateAlbumName(albumId, newName.trim());
       
@@ -4140,6 +4480,12 @@ export default function App() {
   };
 
   const handleTransferSticker = async (targetAlbumId: string) => {
+    if (user?.isAnonymous) {
+      alert(isEs 
+        ? "La transferencia de láminas no está habilitada en el Modo Temporal."
+        : "Transferring stickers is disabled in Temporal Mode.");
+      return;
+    }
     if (!transferStickerCode || !activeAlbum || !targetAlbumId) return;
     setTransferLoading(true);
     try {
@@ -4615,6 +4961,63 @@ export default function App() {
           </p>
         </div>
       </motion.div>
+
+      {/* MODAL 1: ADVERTENCIA MODO TEMPORAL */}
+      <AnimatePresence>
+        {showTemporalWarningModal && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md"
+            id="temporal-warning-backdrop"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-dark-bg w-full max-w-lg rounded-3xl border-2 border-fifa-gold/30 overflow-hidden shadow-2xl relative"
+              id="temporal-warning-card"
+            >
+              <div className="p-6 border-b border-white/5 flex items-center justify-between bg-fifa-gold/5">
+                <h3 className="text-lg font-display font-bold flex items-center gap-2 text-fifa-gold">
+                  <AlertTriangle className="text-fifa-gold animate-bounce" size={24} /> 
+                  <span>{i18n.language.startsWith('es') ? 'ADVERTENCIA DE MODO TEMPORAL' : 'TEMPORAL MODE WARNING'}</span>
+                </h3>
+                <button onClick={() => setShowTemporalWarningModal(false)} className="p-2 hover:bg-white/5 rounded-full transition-colors text-gray-500">
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="p-8 space-y-6">
+                <p className="text-gray-200 text-sm leading-relaxed text-center font-medium bg-[#91022D]/10 border border-[#91022D]/20 p-5 rounded-2xl shadow-inner">
+                  {i18n.language.startsWith('es') 
+                    ? "Este modo es temporal. Bajo cualquier circunstancia, esta cuenta y sus datos locales se eliminarán de forma definitiva a los 30 días de haber sido creada. Solo habilita el guardado de láminas local básico, el resto de las funciones avanzadas están bloqueadas."
+                    : "This mode is temporal. Under any circumstances, this account and its local data will be permanently deleted 30 days after creation. It only enables basic local sticker filling, other advanced functions are blocked."}
+                </p>
+
+                <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                  <button
+                    onClick={() => setShowTemporalWarningModal(false)}
+                    className="flex-1 bg-white/5 hover:bg-white/10 text-gray-400 font-bold py-3.5 rounded-xl transition-all uppercase tracking-wider text-xs border border-white/10"
+                    id="temporal-warning-cancel"
+                  >
+                    {i18n.language.startsWith('es') ? 'Cancelar' : 'Cancel'}
+                  </button>
+
+                  <button
+                    onClick={handleConfirmTemporalMode}
+                    className="flex-1 bg-fifa-gold text-black hover:bg-fifa-gold/90 font-black py-3.5 rounded-xl transition-all uppercase tracking-wider text-xs shadow-lg shadow-fifa-gold/10"
+                    id="temporal-warning-confirm"
+                  >
+                    {i18n.language.startsWith('es') ? 'Aceptar y Continuar' : 'Accept and Continue'}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 
@@ -5326,7 +5729,7 @@ export default function App() {
             exit={{ height: 0, opacity: 0 }}
             className="bg-amber-600 text-white text-[10px] sm:text-xs font-bold py-2 px-4 flex flex-wrap items-center justify-center gap-2 sticky top-0 z-[120] shadow-lg uppercase tracking-wider text-center"
           >
-            <span>⚠️ {i18n.language.startsWith('es') ? 'MODO TEMPORAL: Los datos solo se guardan en el celular.' : 'TEMPORAL MODE: Data only saved locally.'}</span>
+            <span>⚠️ {i18n.language.startsWith('es') ? 'MODO TEMPORAL: Esta cuenta y sus datos locales se eliminarán definitivamente a los 30 días.' : 'TEMPORAL MODE: This account and its local data will be permanently deleted after 30 days.'}</span>
             <button
               onClick={() => {
                 const txt = exportInventoryToPlainText(rawInventory);
@@ -6472,61 +6875,6 @@ export default function App() {
                 <p className="text-[10px] text-gray-600 text-center uppercase tracking-widest font-bold">
                   {t('auth.reauth_msg')}
                 </p>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* MODAL 1: ADVERTENCIA MODO TEMPORAL */}
-      <AnimatePresence>
-        {showTemporalWarningModal && (
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md"
-            id="temporal-warning-backdrop"
-          >
-            <motion.div 
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-dark-bg w-full max-w-lg rounded-3xl border-2 border-fifa-gold/30 overflow-hidden shadow-2xl relative"
-              id="temporal-warning-card"
-            >
-              <div className="p-6 border-b border-white/5 flex items-center justify-between bg-fifa-gold/5">
-                <h3 className="text-lg font-display font-bold flex items-center gap-2 text-fifa-gold">
-                  <AlertTriangle className="text-fifa-gold animate-bounce" size={24} /> 
-                  <span>{i18n.language.startsWith('es') ? 'ADVERTENCIA DE MODO TEMPORAL' : 'TEMPORAL MODE WARNING'}</span>
-                </h3>
-                <button onClick={() => setShowTemporalWarningModal(false)} className="p-2 hover:bg-white/5 rounded-full transition-colors text-gray-500">
-                  <X size={20} />
-                </button>
-              </div>
-
-              <div className="p-8 space-y-6">
-                <p className="text-gray-200 text-sm leading-relaxed text-center font-medium bg-[#91022D]/10 border border-[#91022D]/20 p-5 rounded-2xl shadow-inner">
-                  "Este modo solo habilita el guardado de láminas local. Ningún dato de tu inventario se envía a la nube; todo se guarda en el celular. Funciones aparte del registro básico están bloqueadas."
-                </p>
-
-                <div className="flex flex-col sm:flex-row gap-3 pt-2">
-                  <button
-                    onClick={() => setShowTemporalWarningModal(false)}
-                    className="flex-1 bg-white/5 hover:bg-white/10 text-gray-400 font-bold py-3.5 rounded-xl transition-all uppercase tracking-wider text-xs border border-white/10"
-                    id="temporal-warning-cancel"
-                  >
-                    {i18n.language.startsWith('es') ? 'Cancelar' : 'Cancel'}
-                  </button>
-
-                  <button
-                    onClick={handleConfirmTemporalMode}
-                    className="flex-1 bg-fifa-gold text-black hover:bg-fifa-gold/90 font-black py-3.5 rounded-xl transition-all uppercase tracking-wider text-xs shadow-lg shadow-fifa-gold/10"
-                    id="temporal-warning-confirm"
-                  >
-                    {i18n.language.startsWith('es') ? 'Aceptar y Continuar' : 'Accept and Continue'}
-                  </button>
-                </div>
               </div>
             </motion.div>
           </motion.div>

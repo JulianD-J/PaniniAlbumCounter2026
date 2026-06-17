@@ -378,6 +378,68 @@ export const albumService = {
     }
   },
 
+  async executeDirectMaturitySwap(
+    myAlbumId: string, 
+    friendAlbumId: string, 
+    give: string[], 
+    get: string[]
+  ) {
+    try {
+      const { writeBatch } = await import('firebase/firestore');
+      const batch = writeBatch(db);
+
+      const myAlbumRef = doc(db, 'albums', myAlbumId);
+      const friendAlbumRef = doc(db, 'albums', friendAlbumId);
+
+      const myInv = await this.getAlbumInventory(myAlbumId);
+      const friendInv = await this.getAlbumInventory(friendAlbumId);
+
+      const myUpdates: Record<string, any> = {
+        updatedAt: serverTimestamp()
+      };
+      const friendUpdates: Record<string, any> = {
+        updatedAt: serverTimestamp()
+      };
+
+      for (const code of give) {
+        const myItem = myInv[code];
+        const currentMyQty = myItem ? (myItem.quantity || 0) : 0;
+        const nextMyQty = Math.max(1, currentMyQty - 1);
+        myUpdates[`inventory.${code}.quantity`] = nextMyQty;
+        myUpdates[`inventory.${code}.isConseguida`] = true;
+        myUpdates[`inventory.${code}.updatedAt`] = serverTimestamp();
+
+        friendUpdates[`inventory.${code}.quantity`] = 1;
+        friendUpdates[`inventory.${code}.isConseguida`] = true;
+        friendUpdates[`inventory.${code}.updatedAt`] = serverTimestamp();
+      }
+
+      for (const code of get) {
+        const friendItem = friendInv[code];
+        const currentFriendQty = friendItem ? (friendItem.quantity || 0) : 0;
+        const nextFriendQty = Math.max(1, currentFriendQty - 1);
+        friendUpdates[`inventory.${code}.quantity`] = nextFriendQty;
+        friendUpdates[`inventory.${code}.isConseguida`] = true;
+        friendUpdates[`inventory.${code}.updatedAt`] = serverTimestamp();
+
+        myUpdates[`inventory.${code}.quantity`] = 1;
+        myUpdates[`inventory.${code}.isConseguida`] = true;
+        myUpdates[`inventory.${code}.updatedAt`] = serverTimestamp();
+      }
+
+      if (Object.keys(myUpdates).length > 1) {
+        batch.update(myAlbumRef, myUpdates);
+      }
+      if (Object.keys(friendUpdates).length > 1) {
+        batch.update(friendAlbumRef, friendUpdates);
+      }
+
+      await batch.commit();
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, `albums/${myAlbumId}`);
+    }
+  },
+
   async getAlbums(userId: string) {
     const q = query(collection(db, 'albums'), where('userId', '==', userId));
     try {
@@ -588,7 +650,9 @@ export const albumService = {
           announcementText: data.announcementText || "",
           announcementTextEs: data.announcementTextEs || "",
           announcementTextEn: data.announcementTextEn || "",
-          maintenanceModeEnabled: !!data.maintenanceModeEnabled
+          maintenanceModeEnabled: !!data.maintenanceModeEnabled,
+          appVersion: data.appVersion || "1.0.0",
+          changelog: data.changelog || ""
         };
       }
       return {
@@ -598,7 +662,9 @@ export const albumService = {
         announcementText: "",
         announcementTextEs: "",
         announcementTextEn: "",
-        maintenanceModeEnabled: false
+        maintenanceModeEnabled: false,
+        appVersion: "1.0.0",
+        changelog: ""
       };
     } catch (e) {
       console.error("Error fetching global settings:", e);
@@ -609,7 +675,9 @@ export const albumService = {
         announcementText: "",
         announcementTextEs: "",
         announcementTextEn: "",
-        maintenanceModeEnabled: false
+        maintenanceModeEnabled: false,
+        appVersion: "1.0.0",
+        changelog: ""
       };
     }
   },
@@ -622,6 +690,8 @@ export const albumService = {
     announcementTextEs?: string;
     announcementTextEn?: string;
     maintenanceModeEnabled?: boolean;
+    appVersion?: string;
+    changelog?: string;
   }) {
     try {
       await setDoc(doc(db, 'settings', 'global'), {
@@ -797,7 +867,7 @@ export const albumService = {
     }
   },
 
-  async getDeviceId(): Promise<string> {
+  async getDeviceId(strict = false): Promise<string> {
     try {
       const info = await Device.getId();
       if (info && info.identifier) {
@@ -805,6 +875,10 @@ export const albumService = {
       }
     } catch (e) {
       console.warn("Capacitor Device.getId() not available, using fallback", e);
+    }
+    
+    if (strict) {
+      return "";
     }
     
     let fallbackId = localStorage.getItem('colecollect_device_id');
