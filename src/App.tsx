@@ -105,6 +105,7 @@ import {
   Legend
 } from 'recharts';
 import { RPGProgressWidget } from './components/RPGProgressWidget';
+import { useLocalHandshake, computeHandshakeResponse } from './hooks/useLocalHandshake';
 
 export const hapticFeedback = async (style = ImpactStyle.Light) => {
   try {
@@ -2824,12 +2825,42 @@ const CommunityView = ({
   const [generatedQRString, setGeneratedQRString] = useState("");
   const [copiedQRLink, setCopiedQRLink] = useState(false);
 
-  // New offline PIN confirmation states
+  // New Handshake offline verification states
   const [friendAlbumId, setFriendAlbumId] = useState<string | null>(null);
   const [showConsentModal, setShowConsentModal] = useState(false);
-  const [consentPin, setConsentPin] = useState("");
-  const [pinError, setPinError] = useState("");
   const [isSwapSuccess, setIsSwapSuccess] = useState(false);
+
+  // Challenge-Response Handshake custom hook
+  const {
+    challenge,
+    typedPin,
+    setTypedPin,
+    isHandshakeVerified,
+    handshakeError,
+    setHandshakeError,
+    generateNewChallenge,
+    verifyResponsePin,
+    resetHandshake
+  } = useLocalHandshake();
+
+  // Authorizer offline states for calculating other user's PIN response
+  const [authChallengeInput, setAuthChallengeInput] = useState("");
+  const [authCalculatedPin, setAuthCalculatedPin] = useState<string | null>(null);
+
+  // Compute offline matching PIN as user inputs 3 digits
+  useEffect(() => {
+    const cleanChallenge = authChallengeInput.replace(/\D/g, "");
+    if (cleanChallenge.length === 3) {
+      const challengeVal = parseInt(cleanChallenge, 10);
+      if (!isNaN(challengeVal)) {
+        setAuthCalculatedPin(computeHandshakeResponse(challengeVal));
+      } else {
+        setAuthCalculatedPin(null);
+      }
+    } else {
+      setAuthCalculatedPin(null);
+    }
+  }, [authChallengeInput]);
 
   useEffect(() => {
     loadFriends();
@@ -2885,34 +2916,36 @@ const CommunityView = ({
     setSelectedToGet([]);
   };
 
-  const calculatedPin = useMemo(() => {
-    const listGive = [...selectedToGive].sort();
-    const listGet = [...selectedToGet].sort();
-    const combinedStr = `${listGive.join(',')}|${listGet.join(',')}`;
-    
-    let hash = 0;
-    const prime = 31;
-    for (let i = 0; i < combinedStr.length; i++) {
-      hash = (hash * prime + combinedStr.charCodeAt(i)) % 10000007;
-    }
-    const pinNum = hash % 10000;
-    return String(pinNum).padStart(4, '0');
-  }, [selectedToGive, selectedToGet]);
-
   const handlePrepareApplyTrade = () => {
     if (selectedToGive.length === 0 && selectedToGet.length === 0) {
       alert(isEs ? "Por favor, selecciona al menos una lámina para realizar el intercambio." : "Please select at least one sticker to perform the swap.");
       return;
     }
-    setConsentPin("");
-    setPinError("");
+    setTypedPin("");
+    setHandshakeError("");
     setIsSwapSuccess(false);
+    generateNewChallenge();
     setShowConsentModal(true);
   };
 
   const handlePressDigit = (digit: string) => {
-    if (consentPin.length < 4) {
-      setConsentPin(prev => prev + digit);
+    if (typedPin.length < 4) {
+      const newPin = typedPin + digit;
+      setTypedPin(newPin);
+      
+      if (newPin.length === 4) {
+        const expectedPin = computeHandshakeResponse(challenge || 0);
+        if (newPin === expectedPin) {
+          handleCommitDirectTrade();
+        } else {
+          setHandshakeError(isEs ? "El PIN de confirmación no coincide." : "Confirmation PIN does not match.");
+          hapticFeedback(ImpactStyle.Heavy);
+          setTimeout(() => {
+            setTypedPin("");
+            setHandshakeError("");
+          }, 2400);
+        }
+      }
     }
   };
 
@@ -2929,6 +2962,7 @@ const CommunityView = ({
       
       setLastSwapped({ give: selectedToGive, get: selectedToGet });
       setIsSwapSuccess(true);
+      hapticFeedback(ImpactStyle.Medium);
       
       confetti({
         particleCount: 150,
@@ -2943,21 +2977,6 @@ const CommunityView = ({
       setSwapping(null);
     }
   };
-
-  useEffect(() => {
-    if (consentPin.length === 4) {
-      if (consentPin === calculatedPin) {
-        handleCommitDirectTrade();
-      } else {
-        setPinError(isEs ? "El PIN no coincide. Confirma el trato con tu amigo." : "PIN doesn't match. Verify trade with your friend.");
-        const timer = setTimeout(() => {
-          setConsentPin("");
-          setPinError("");
-        }, 2500);
-        return () => clearTimeout(timer);
-      }
-    }
-  }, [consentPin, calculatedPin, isEs]);
 
   const comparison = useMemo(() => {
     const give: string[] = [];
@@ -3083,7 +3102,7 @@ const CommunityView = ({
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {/* Connection & Search Card */}
         <div className="fifa-card p-6 flex flex-col justify-between">
           <div>
@@ -3132,6 +3151,78 @@ const CommunityView = ({
               <QrCode size={16} className="text-fifa-gold" />
               <span>{t('bazar.qr_button_title')}</span>
             </button>
+          </div>
+        </div>
+
+        {/* Local Handshake Authorizer Card (Usuario A - Dueño/Emisor) */}
+        <div className="fifa-card p-6 border border-fifa-gold/15 bg-gradient-to-b from-dark-card to-black/40 flex flex-col justify-between relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-fifa-gold/5 blur-2xl rounded-full pointer-events-none" />
+          <div>
+            <h2 className="font-display font-bold text-base mb-1.5 flex items-center gap-2 text-white">
+              <span className="text-lg">🔑</span>
+              <span>{isEs ? "Autorizador (Dueño A)" : "Handshake Authorizer (Owner A)"}</span>
+            </h2>
+            <p className="text-[11px] text-gray-400 leading-relaxed mb-4">
+              {isEs 
+                ? "Escribe los 3 dígitos que te muestra el receptor para calcular su PIN offline."
+                : "Type your friend's 3-digit challenge to calculate their authorization PIN."}
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex gap-2">
+              <input 
+                type="text" 
+                maxLength={3}
+                placeholder="Ex: 482"
+                value={authChallengeInput}
+                onChange={(e) => {
+                  const cleaned = e.target.value.replace(/\D/g, "");
+                  setAuthChallengeInput(cleaned);
+                  hapticFeedback(ImpactStyle.Light);
+                }}
+                className="flex-1 bg-black/40 border border-white/10 rounded-xl px-4 py-2 focus:outline-none focus:border-fifa-gold text-center font-mono font-black text-lg placeholder-gray-700 tracking-wider"
+              />
+              {authChallengeInput && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthChallengeInput("");
+                    setAuthCalculatedPin(null);
+                    hapticFeedback(ImpactStyle.Light);
+                  }}
+                  className="bg-white/5 border border-white/15 px-3 py-2 rounded-xl text-[10px] uppercase font-black tracking-wider text-gray-450 hover:bg-white/10 hover:text-white transition-all shrink-0"
+                >
+                  {isEs ? "Borrar" : "Clear"}
+                </button>
+              )}
+            </div>
+
+            {authCalculatedPin !== null ? (
+              <div className="bg-fifa-gold/10 border border-fifa-gold/25 p-3 rounded-xl flex items-center justify-between animate-fade-in">
+                <div className="text-left">
+                  <span className="text-[9px] text-[#FFD700] uppercase font-black tracking-widest block leading-none mb-1">
+                    {isEs ? "PIN DE RESPUESTA" : "RESPONSE PIN"}
+                  </span>
+                  <span className="text-[10px] text-gray-400 block max-w-[130px] leading-tight">
+                    {isEs ? "Díctale esto a tu amigo" : "Dictate this to your friend"}
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-2xl font-mono font-black tracking-widest text-[#FFD700] bg-black/60 px-3 py-1.5 rounded-lg border border-fifa-gold/20 shadow-[0_2px_15px_rgba(212,175,55,0.15)] block">
+                    {authCalculatedPin}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-white/[2%] border border-white/5 p-3 rounded-xl text-center">
+                <span className="text-[10px] text-gray-500 font-medium italic block leading-relaxed">
+                  {isEs 
+                    ? "Esperando el reto de 3 dígitos de tu amigo..." 
+                    : "Awaiting your friend's 3-digit challenge..."}
+                </span>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -3478,97 +3569,120 @@ const CommunityView = ({
               initial={{ scale: 0.95, y: 15, opacity: 0 }}
               animate={{ scale: 1, y: 0, opacity: 1 }}
               exit={{ scale: 0.95, y: 15, opacity: 0 }}
-              className="bg-[#1E1E1E] border border-white/10 rounded-3xl p-6 max-w-sm w-full shadow-2xl relative z-10 text-center text-white"
+              className="bg-[#1E1E1E] border border-white/10 rounded-3xl p-6 max-w-sm w-full max-h-[90vh] overflow-y-auto shadow-2xl relative z-10 text-center text-white scrollbar-thin scrollbar-thumb-white/10"
             >
               {!isSwapSuccess ? (
                 <>
                   <button 
-                    onClick={() => setShowConsentModal(false)}
+                    onClick={() => {
+                      resetHandshake();
+                      setShowConsentModal(false);
+                    }}
                     className="absolute right-4 top-4 text-gray-500 hover:text-white transition-colors"
                   >
                     <X size={18} />
                   </button>
 
-                  <div className="w-12 h-12 bg-[#FFD700]/10 border border-[#FFD700]/20 rounded-2xl flex items-center justify-center mx-auto mb-4 mt-2">
-                    <CheckCircle2 className="text-[#FFD700]" size={24} />
+                  <div className="w-12 h-12 bg-fifa-gold/10 border border-fifa-gold/25 rounded-2xl flex items-center justify-center mx-auto mb-3 mt-1 shadow-md shadow-black/40">
+                    <span className="text-xl">🤝</span>
                   </div>
 
-                  <h3 className="text-lg font-display font-black text-white tracking-tight mb-2 uppercase">
-                    {isEs ? "Doble Verificación" : "Double Verification"}
+                  <h3 className="text-lg font-display font-black text-white tracking-tight mb-1 uppercase">
+                    {isEs ? "Firma de Seguridad" : "Secured Handshake"}
                   </h3>
                   
-                  <p className="text-xs text-gray-400 leading-relaxed px-2 mb-4">
+                  <p className="text-[11px] text-gray-400 leading-normal px-2 mb-3">
                     {isEs 
-                      ? `Para confirmar, ingresa el PIN de 4 dígitos que aparece en la pantalla de ${selectedFriend.displayName}.` 
-                      : `To confirm, enter the 4-digit PIN that appears on the screen of ${selectedFriend.displayName}.`}
+                      ? "Intercambio presencial local. Autoriza física y matemáticamente el bazar:" 
+                      : "Face-to-face local verification. Authorize trade mathematically:"}
                   </p>
 
-                  {/* Expected local calculated PIN display for the friend */}
-                  <div className="bg-white/[2%] border border-white/5 p-3 rounded-2xl mb-4">
-                    <span className="text-[10px] text-gray-500 block uppercase font-black tracking-widest mb-1">
-                      {isEs ? "Tu PIN de este intercambio" : "Your PIN for this trade"}
+                  {/* 3-Digit Challange Box */}
+                  <div className="bg-black/50 border border-fifa-gold/20 p-4 rounded-2xl mb-4 relative overflow-hidden shadow-[inset_0_2px_8px_rgba(0,0,0,0.6)]">
+                    <span className="text-[9px] text-[#FFD700]/70 block uppercase font-black tracking-widest mb-1.5 text-center">
+                      {isEs ? "1. Dile este RETO a tu amigo" : "1. Tell this CHALLENGE to friend"}
                     </span>
-                    <strong className="text-2xl font-mono text-[#FFD700] tracking-widest">{calculatedPin}</strong>
-                    <span className="text-[9px] text-gray-500 block mt-1 leading-normal">
+                    <strong className="text-3xl font-mono text-white tracking-[0.3em] block text-center pl-[0.3em] select-all animate-pulse drop-shadow-[0_2px_10px_rgba(212,175,55,0.25)]">
+                      {challenge}
+                    </strong>
+                    <span className="text-[10px] text-gray-500 block mt-2.5 leading-normal text-center">
                       {isEs 
-                        ? "Tu amigo verá exactamente este PIN en su pantalla si tiene seleccionadas las mismas láminas."
-                        : "Your friend will see this exact PIN on their screen if they have selected the same stickers."}
+                        ? `Tu amigo (Dueño) lo escribirá en su pantalla "Autorizador" para generar tu PIN.`
+                        : `Your friend (Owner) will type this in their "Authorizer" card to generate your PIN.`}
                     </span>
                   </div>
 
-                  {/* 4 PIN digits input view */}
-                  <div className="flex justify-center gap-3 my-5">
+                  {/* 2. Enter PIN indicator */}
+                  <span className="text-[10px] text-[#FFD700] uppercase font-black tracking-widest block mb-1 text-center">
+                    {isEs ? "2. Digita el PIN que te dicte" : "2. Enter the PIN they dictate"}
+                  </span>
+
+                  {/* 4 PIN digits input slots */}
+                  <div className="flex justify-center gap-3 my-3">
                     {[0, 1, 2, 3].map((idx) => (
                       <div 
                         key={idx} 
-                        className={`w-12 h-14 rounded-xl border-2 flex items-center justify-center font-display font-black text-xl transition-all ${
-                          consentPin.length > idx 
-                            ? 'border-[#FFD700] text-white bg-[#FFD700]/10 shadow-lg shadow-[#FFD700]/10' 
+                        className={`w-12 h-12 rounded-xl border-2 flex items-center justify-center font-display font-black text-lg transition-all ${
+                          typedPin.length > idx 
+                            ? 'border-fifa-gold text-white bg-fifa-gold/10 shadow-lg shadow-fifa-gold/10' 
                             : 'border-white/10 text-gray-500 bg-white/[1%]'
                         }`}
                       >
-                        {consentPin[idx] || ""}
+                        {typedPin[idx] || ""}
                       </div>
                     ))}
                   </div>
 
-                  {/* Pin Error message */}
-                  {pinError && (
-                    <p className="text-xs text-red-400 font-bold mb-4 animate-bounce leading-normal px-2">
-                      ⚠️ {pinError}
+                  {/* Handshake Error messages */}
+                  {handshakeError && (
+                    <p className="text-[11px] text-red-400 font-bold mb-3 animate-bounce leading-tight px-1 font-sans text-center">
+                      ⚠️ {handshakeError}
                     </p>
                   )}
 
                   {/* Custom Numeric Keypad */}
-                  <div className="grid grid-cols-3 gap-3 max-w-[240px] mx-auto mb-2">
+                  <div className="grid grid-cols-3 gap-2.5 max-w-[210px] mx-auto mb-1">
                     {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
                       <button
                         key={num}
                         type="button"
-                        onClick={() => handlePressDigit(String(num))}
-                        className="w-14 h-14 rounded-full bg-white/5 border border-white/5 hover:bg-white/10 text-white font-display font-black text-lg flex items-center justify-center active:scale-90 transition-all shadow-sm"
+                        onClick={() => {
+                          handlePressDigit(String(num));
+                          hapticFeedback(ImpactStyle.Light);
+                        }}
+                        className="w-12 h-12 rounded-full bg-white/5 border border-white/5 hover:bg-white/10 text-white font-display font-black text-base flex items-center justify-center active:scale-90 transition-all shadow-sm"
                       >
                         {num}
                       </button>
                     ))}
                     <button
                       type="button"
-                      onClick={() => setConsentPin("")}
-                      className="w-14 h-14 rounded-full bg-white/5 border border-white/5 text-[9px] text-red-400 font-black flex items-center justify-center active:scale-90 transition-all uppercase tracking-wider"
+                      onClick={() => {
+                        setTypedPin("");
+                        setHandshakeError("");
+                        hapticFeedback(ImpactStyle.Medium);
+                      }}
+                      className="w-12 h-12 rounded-full bg-white/5 border border-white/5 text-[9px] text-red-400 font-black flex items-center justify-center active:scale-90 transition-all uppercase tracking-wider"
                     >
                       {isEs ? "Borrar" : "Clear"}
                     </button>
                     <button
                       type="button"
-                      onClick={() => handlePressDigit("0")}
-                      className="w-14 h-14 rounded-full bg-white/5 border border-white/5 hover:bg-white/10 text-white font-display font-black text-lg flex items-center justify-center active:scale-90 transition-all shadow-sm"
+                      onClick={() => {
+                        handlePressDigit("0");
+                        hapticFeedback(ImpactStyle.Light);
+                      }}
+                      className="w-12 h-12 rounded-full bg-white/5 border border-white/5 hover:bg-white/10 text-white font-display font-black text-base flex items-center justify-center active:scale-90 transition-all shadow-sm"
                     >
                       0
                     </button>
                     <button
                       type="button"
-                      onClick={() => setConsentPin(prev => prev.slice(0, -1))}
-                      className="w-14 h-14 rounded-full bg-white/5 border border-[#FFD700]/20 text-lg text-gray-400 flex items-center justify-center active:scale-90 transition-all"
+                      onClick={() => {
+                        setTypedPin(prev => prev.slice(0, -1));
+                        hapticFeedback(ImpactStyle.Light);
+                      }}
+                      className="w-12 h-12 rounded-full bg-white/5 border border-fifa-gold/20 text-base text-gray-400 flex items-center justify-center active:scale-90 transition-all"
                     >
                       ⌫
                     </button>
