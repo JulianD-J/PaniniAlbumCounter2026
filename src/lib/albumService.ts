@@ -950,5 +950,42 @@ export const albumService = {
       console.error("Error in checkAndClaimTrial:", e);
       return { success: false, message: e instanceof Error ? e.message : String(e) };
     }
+  },
+
+  async getAllDeviceTrials(): Promise<any[]> {
+    try {
+      const snap = await getDocs(collection(db, 'dispositivos_prueba_gratis'));
+      return snap.docs.map(doc => {
+        const data = doc.data();
+        let activatedAtString = "";
+        if (data.activatedAt) {
+          if (typeof data.activatedAt.toDate === 'function') {
+            activatedAtString = data.activatedAt.toDate().toISOString();
+          } else if (data.activatedAt.seconds) {
+            activatedAtString = new Date(data.activatedAt.seconds * 1000).toISOString();
+          } else {
+            activatedAtString = String(data.activatedAt);
+          }
+        }
+        return { 
+          id: doc.id, 
+          ...data,
+          activatedAtString
+        };
+      });
+    } catch (e) {
+      console.error("Error getting all device trials", e);
+      return [];
+    }
+  },
+
+  async deleteDeviceTrial(deviceId: string): Promise<boolean> {
+    try {
+      await deleteDoc(doc(db, 'dispositivos_prueba_gratis', deviceId));
+      return true;
+    } catch (e) {
+      console.error("Error deleting device trial", e);
+      return false;
+    }
   }
 };

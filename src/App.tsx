@@ -21,7 +21,7 @@ import {
   GoogleAuthProvider,
   signInAnonymously
 } from 'firebase/auth';
-import { onSnapshot, doc } from 'firebase/firestore';
+import { onSnapshot, doc, getDoc, getDocs, collection } from 'firebase/firestore';
 import { albumService } from './lib/albumService';
 import { encodeInventoryToQRString } from './lib/qrBitfield';
 import { QRCodeSVG } from 'qrcode.react';
@@ -67,6 +67,7 @@ import {
   CloudOff,
   Diamond,
   ShieldCheck,
+  ShieldAlert,
   Repeat,
   AlertTriangle,
   ArrowUpCircle,
@@ -259,8 +260,11 @@ const PremiumModal = ({
   loading,
   profile,
   user,
-  onLink,
-  onClaim
+  onClaim,
+  trialActive,
+  trialUsed,
+  deviceUsedTrial,
+  deviceTrialOwner
 }: { 
   isOpen: boolean, 
   onClose: () => void, 
@@ -269,26 +273,17 @@ const PremiumModal = ({
   loading: boolean,
   profile: any,
   user: User | null,
-  onLink: () => Promise<void>,
-  onClaim: () => Promise<void>
+  onClaim: () => Promise<void>,
+  trialActive: boolean,
+  trialUsed: boolean,
+  deviceUsedTrial: boolean,
+  deviceTrialOwner: string | null
 }) => {
-  const { t } = useTranslation();
-  const [linking, setLinking] = useState(false);
+  const { t, i18n } = useTranslation();
   const [claiming, setClaiming] = useState(false);
+  const isEs = i18n.language.startsWith('es');
 
   if (!isOpen) return null;
-
-  const trialActive = isTrialActive(profile);
-  const trialUsed = profile?.trialUsed;
-  
-  // Check if current user is logged in with Google or has linked Google
-  const isGoogleUser = user?.providerData.some(p => p.providerId === 'google.com');
-
-  const handleLink = async () => {
-    setLinking(true);
-    await onLink();
-    setLinking(false);
-  };
 
   const handleClaim = async () => {
     setClaiming(true);
@@ -370,40 +365,43 @@ const PremiumModal = ({
                 <div className="absolute top-0 right-0 w-32 h-32 bg-fifa-gold/10 blur-[60px] rounded-full -mr-16 -mt-16 group-hover:bg-fifa-gold/20 transition-all duration-700" />
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-display font-black text-fifa-gold uppercase tracking-[0.2em]">{t('album.trial_title')}</h3>
-                  {trialActive && (
+                  {trialActive && !user?.isAnonymous && (
                     <div className="flex items-center gap-1.5 bg-green-500/20 text-green-500 px-3 py-1 rounded-full border border-green-500/30">
                       <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                      <span className="text-[10px] font-black tracking-widest">ACTIVE</span>
+                      <span className="text-[10px] font-black tracking-widest font-mono">ACTIVE</span>
                     </div>
                   )}
                 </div>
-                <p className="text-xs text-gray-400 leading-relaxed font-medium">{t('album.trial_desc')}</p>
+                <p className="text-xs text-gray-400 leading-relaxed font-medium">
+                  {isEs ? "¡Hazte PRO ahora! Disfruta de 7 días gratis de analíticas, exportación premium e intercambio." : "Claim your free 7-day trial of PRO analytics, premium exporting, and swapping features."}
+                </p>
                 
-                {!trialUsed ? (
+                {user?.isAnonymous ? (
+                  <div className="py-4 bg-yellow-500/10 rounded-2xl border border-yellow-500/20 text-center px-4">
+                    <p className="text-xs text-yellow-400 font-bold uppercase tracking-wider leading-relaxed">
+                      {isEs 
+                        ? "Las cuentas de invitado no son elegibles para periodos de prueba. Por favor regístrate." 
+                        : "Anonymous guest profiles are not eligible for free testing trials. Please register a real account."}
+                    </p>
+                  </div>
+                ) : !trialUsed ? (
                   <div className="flex flex-col gap-3">
-                    {!isGoogleUser ? (
-                      <button 
-                        onClick={handleLink}
-                        disabled={linking}
-                        className="w-full bg-white text-black font-black py-4 rounded-2xl hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 shadow-xl shadow-black/20"
-                      >
-                        {linking ? <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" /> : <img src="https://www.google.com/favicon.ico" className="w-4 h-4" alt="" />}
-                        {t('album.trial_link_button')}
-                      </button>
-                    ) : (
-                      <button 
-                        onClick={handleClaim}
-                        disabled={claiming}
-                        className="w-full bg-fifa-gold text-black font-black py-4 rounded-2xl hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 shadow-xl shadow-fifa-gold/30"
-                      >
-                        {claiming ? <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" /> : <ShieldCheck size={18} />}
-                        {t('album.trial_claim_button')}
-                      </button>
-                    )}
+                    <button 
+                      onClick={handleClaim}
+                      disabled={claiming}
+                      className="w-full bg-fifa-gold text-black font-black py-4 rounded-2xl hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 shadow-xl shadow-fifa-gold/30"
+                    >
+                      {claiming ? <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" /> : <ShieldCheck size={18} />}
+                      {t('album.trial_claim_button')}
+                    </button>
                   </div>
                 ) : (
-                  <div className="py-4 bg-black/20 rounded-2xl border border-white/5 text-center">
-                    <p className="text-xs text-gray-500 font-bold uppercase tracking-widest">{t('album.trial_used_msg')}</p>
+                  <div className="py-4 bg-black/20 rounded-2xl border border-white/5 text-center px-2">
+                    <p className="text-xs text-fifa-red font-bold uppercase tracking-widest leading-normal">
+                      {deviceUsedTrial && user?.uid !== deviceTrialOwner 
+                        ? (isEs ? "Prueba ya usada en este dispositivo por otra cuenta" : "Trial already used on this device by another account")
+                        : t('album.trial_used_msg')}
+                    </p>
                   </div>
                 )}
               </motion.div>
@@ -1643,7 +1641,7 @@ const StatsTab = ({
   const { t, i18n } = useTranslation();
   const isEs = i18n.language.startsWith('es');
 
-  if (isAnonymous) {
+  if (isAnonymous && !isPremium) {
     return (
       <div className="relative group w-full py-12">
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -2595,6 +2593,109 @@ const StatsTab = ({
                   </div>
                 ))}
               </div>
+            </div>
+          </motion.div>
+        </div>
+
+        {/* FIFA Regional Confederations Progression */}
+        <div id="fifa-regional-progression-section" className="w-full font-sans">
+          <motion.div variants={itemVariants} className="w-full fifa-card p-8 bg-black/40 backdrop-blur-xl border-white/5">
+            <h3 className="font-display font-bold text-xl mb-2 flex items-center gap-3">
+              <div className="p-2 bg-blue-500/10 rounded-xl">
+                <Globe className="text-blue-400 animate-pulse" size={20} />
+              </div>
+              <span>{isEs ? 'Progreso de Confederaciones Continentales' : 'Continental Confederations Progress'}</span>
+            </h3>
+            <p className="text-xs text-gray-400 mb-8 max-w-2xl leading-relaxed text-left">
+              {isEs 
+                ? 'Monitorea tu nivel de avance agrupado por regiones oficiales de la FIFA. Completa colecciones de cada continente para alcanzar un mayor coeficiente global.' 
+                : 'Track your collection rates grouped by official FIFA regions. Finish complete continental sets to secure superior trading eligibility.'}
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 text-left">
+              {stats.regionStats.map((reg) => {
+                let iconColor = "text-amber-400";
+                let bgColor = "bg-amber-400/10";
+                let barColor = "bg-gradient-to-r from-amber-400 to-yellow-500";
+                let badgeTxt = "UEFA";
+                let glowColor = "group-hover:shadow-[0_0_20px_rgba(212,175,55,0.08)]";
+
+                if (reg.name === "Europe") {
+                  iconColor = "text-sky-400";
+                  bgColor = "bg-sky-400/10";
+                  barColor = "bg-gradient-to-r from-sky-400 to-blue-500";
+                  badgeTxt = "UEFA";
+                  glowColor = "group-hover:shadow-[0_0_20px_rgba(56,189,248,0.08)]";
+                } else if (reg.name === "Americas") {
+                  iconColor = "text-amber-400";
+                  bgColor = "bg-amber-400/10";
+                  barColor = "bg-gradient-to-r from-amber-400 to-yellow-500";
+                  badgeTxt = "CONCACAF / CONMEBOL";
+                  glowColor = "group-hover:shadow-[0_0_20px_rgba(251,191,36,0.08)]";
+                } else if (reg.name === "Africa") {
+                  iconColor = "text-emerald-400";
+                  bgColor = "bg-emerald-400/10";
+                  barColor = "bg-gradient-to-r from-emerald-400 to-green-500";
+                  badgeTxt = "CAF";
+                  glowColor = "group-hover:shadow-[0_0_20px_rgba(52,211,153,0.08)]";
+                } else {
+                  iconColor = "text-purple-400";
+                  bgColor = "bg-purple-400/10";
+                  barColor = "bg-gradient-to-r from-purple-400 to-pink-500";
+                  badgeTxt = "AFC / OFC";
+                  glowColor = "group-hover:shadow-[0_0_20px_rgba(192,132,252,0.08)]";
+                }
+
+                return (
+                  <motion.div
+                    key={reg.name}
+                    whileHover={{ y: -5, scale: 1.02 }}
+                    className={`p-5 bg-white/[0.02] border border-white/5 rounded-2xl flex flex-col justify-between group transition-all duration-300 relative overflow-hidden ${glowColor}`}
+                  >
+                    <div className="absolute top-0 right-0 w-20 h-20 bg-white/[0.01] rounded-bl-full pointer-events-none group-hover:bg-white/[0.03] transition-colors" />
+                    
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[9px] font-mono font-black tracking-widest text-gray-500 bg-white/5 rounded px-2 py-0.5 uppercase">
+                          {badgeTxt}
+                        </span>
+                        <div className={`w-8 h-8 rounded-lg ${bgColor} flex items-center justify-center shrink-0`}>
+                          <Globe size={14} className={iconColor} />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <h4 className="text-sm font-display font-extrabold text-white group-hover:text-fifa-gold transition-colors">
+                          {reg.name === "Americas" ? (isEs ? 'América' : 'Americas') : 
+                           reg.name === "Europe" ? (isEs ? 'Europa' : 'Europe') :
+                           reg.name === "Africa" ? (isEs ? 'África' : 'Africa') :
+                           (isEs ? 'Asia y Oceanía' : 'Asia / Oceania')}
+                        </h4>
+                        <div className="flex items-baseline gap-1">
+                          <span className="text-xl font-display font-black text-white">{reg.percentage}%</span>
+                          <span className="text-[10px] text-gray-500 font-mono font-medium">{isEs ? 'completado' : 'completed'}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 mt-4">
+                      <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                        <motion.div
+                          initial={{ width: 0 }}
+                          animate={{ width: `${reg.percentage}%` }}
+                          transition={{ duration: 1, ease: "easeOut" }}
+                          className={`h-full rounded-full ${barColor}`}
+                        />
+                      </div>
+                      
+                      <div className="flex justify-between items-center text-[10px] text-gray-500 font-mono">
+                        <span>{reg.obtained} {isEs ? 'obtenidas' : 'obtained'}</span>
+                        <span>{reg.total} {isEs ? 'total' : 'total'}</span>
+                      </div>
+                    </div>
+                  </motion.div>
+                );
+              })}
             </div>
           </motion.div>
         </div>
@@ -3878,6 +3979,7 @@ export default function App() {
   const [passwordSuccess, setPasswordSuccess] = useState(false);
   const [loadingRanking, setLoadingRanking] = useState(false);
   const [userProfile, setUserProfile] = useState<any>(null);
+  const [deviceTrialData, setDeviceTrialData] = useState<any>(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [upgrading, setUpgrading] = useState(false);
   const [showPremiumModal, setShowPremiumModal] = useState(false);
@@ -3931,15 +4033,25 @@ export default function App() {
   const [showMigrationModal, setShowMigrationModal] = useState(false);
   const [exportText, setExportText] = useState("");
   const [copiedExport, setCopiedExport] = useState(false);
-  const [adminActiveTab, setAdminActiveTab] = useState<'settings' | 'users' | 'stats'>('settings');
+  const [adminActiveTab, setAdminActiveTab] = useState<'settings' | 'users' | 'stats' | 'trials'>('settings');
   const [adminUsers, setAdminUsers] = useState<any[]>([]);
   const [adminStats, setAdminStats] = useState({
     totalUsers: 0,
     totalAlbums: 0,
     totalPremium: 0
   });
+  const [adminTrials, setAdminTrials] = useState<any[]>([]);
+  const [adminTrialsLoading, setAdminTrialsLoading] = useState(false);
   const [adminSearch, setAdminSearch] = useState("");
   const [adminMetricsLoading, setAdminMetricsLoading] = useState(false);
+  
+  // New Admin details & filtering features states
+  const [selectedInspectUser, setSelectedInspectUser] = useState<any | null>(null);
+  const [inspectUserInventory, setInspectUserInventory] = useState<any | null>(null);
+  const [inspectUserAlbums, setInspectUserAlbums] = useState<any[]>([]);
+  const [inspectUserLoading, setInspectUserLoading] = useState(false);
+  const [adminUserFilter, setAdminUserFilter] = useState<'all' | 'premium' | 'basic' | 'anonymous'>('all');
+  const [inspectManualPct, setInspectManualPct] = useState<string>("");
   const albumCC = useMemo(() => {
     const count = activeAlbum?.cocaColaCount !== undefined ? activeAlbum.cocaColaCount : 14;
     if (!count || count === 0) return [];
@@ -4077,12 +4189,82 @@ export default function App() {
     const success = await albumService.toggleUserPremium(targetUserId, nextPremium);
     if (success) {
       setAdminUsers(prev => prev.map(u => u.id === targetUserId ? { ...u, isPremium: nextPremium } : u));
+      if (selectedInspectUser && selectedInspectUser.id === targetUserId) {
+        setSelectedInspectUser(prev => prev ? { ...prev, isPremium: nextPremium } : null);
+      }
       setAdminStats(prev => ({
         ...prev,
         totalPremium: prev.totalPremium + (nextPremium ? 1 : -1)
       }));
     } else {
       alert(isEs ? "Error al actualizar el estado premium" : "Error updating premium status");
+    }
+  };
+
+  const handleInspectUser = async (colUser: any) => {
+    setSelectedInspectUser(colUser);
+    setInspectManualPct(colUser.stats?.completionPercentage?.toString() || "0");
+    setInspectUserLoading(true);
+    setInspectUserInventory(null);
+    setInspectUserAlbums([]);
+    try {
+      const albums = await albumService.getAlbums(colUser.id);
+      setInspectUserAlbums(albums || []);
+      if (albums && albums.length > 0) {
+        const activeOrFirst = albums.find((a: any) => a.id === colUser.stats?.activeAlbumId) || albums[0];
+        const inv = await albumService.getAlbumInventory(activeOrFirst.id);
+        setInspectUserInventory(inv || {});
+      }
+    } catch (err) {
+      console.error("Error inspecting user: ", err);
+    } finally {
+      setInspectUserLoading(false);
+    }
+  };
+
+  const handleUpdateInspectUserPercentage = async (userId: string, newPercentage: number) => {
+    if (isNaN(newPercentage) || newPercentage < 0 || newPercentage > 100) {
+      alert(isEs ? "Por favor ingresa un progreso válido entre 0% y 100%" : "Please enter a valid percentage between 0% and 100%");
+      return;
+    }
+    try {
+      await albumService.updateUserStats(userId, newPercentage);
+      setAdminUsers(prev => prev.map(u => u.id === userId ? { ...u, stats: { ...u.stats, completionPercentage: newPercentage } } : u));
+      setSelectedInspectUser(prev => prev ? { ...prev, stats: { ...prev.stats, completionPercentage: newPercentage } } : null);
+      alert(isEs ? "¡Progreso actualizado exitosamente!" : "Progress overridden successfully!");
+    } catch (err) {
+      console.error(err);
+      alert(isEs ? "No se pudo actualizar el progreso del usuario" : "Failed to override progress");
+    }
+  };
+
+  const loadTrialsList = async () => {
+    setAdminTrialsLoading(true);
+    try {
+      const data = await albumService.getAllDeviceTrials();
+      setAdminTrials(data);
+    } catch (e) {
+      console.error("Error loading admin trials:", e);
+    } finally {
+      setAdminTrialsLoading(false);
+    }
+  };
+
+  const handleDeleteTrial = async (deviceId: string) => {
+    if (!confirm(isEs ? `¿Seguro que deseas eliminar la prueba gratis asociada al dispositivo: ${deviceId}? El usuario podrá reclamar otra prueba de 7 días.` : `Are you sure you want to reset free trial for device: ${deviceId}? This device will be eligible to claim another 7-day free trial.` )) return;
+    try {
+      const success = await albumService.deleteDeviceTrial(deviceId);
+      if (success) {
+        setAdminTrials(prev => prev.filter(t => t.id !== deviceId));
+        const localDevId = await albumService.getDeviceId();
+        if (localDevId === deviceId) {
+          setDeviceTrialData({ exists: false });
+        }
+      } else {
+        alert("Error resetting free trial");
+      }
+    } catch (e) {
+      console.error(e);
     }
   };
 
@@ -4093,11 +4275,37 @@ export default function App() {
     }
   }, [globalSettings.announcementEnabled, currentAnnouncementText, announcementHasBeenShown]);
 
+  const deviceUsedTrial = useMemo(() => {
+    if (!deviceTrialData) return false;
+    return deviceTrialData.prueba_utilizada === true;
+  }, [deviceTrialData]);
+
+  const deviceTrialOwner = useMemo(() => {
+    return deviceTrialData?.uid || null;
+  }, [deviceTrialData]);
+
+  const trialActive = useMemo(() => {
+    if (deviceUsedTrial) {
+      if (user && user.uid === deviceTrialOwner) {
+        return isTrialActive(userProfile);
+      }
+      return false;
+    }
+    return false;
+  }, [deviceUsedTrial, deviceTrialOwner, user, userProfile]);
+
+  const trialUsed = useMemo(() => {
+    if (deviceUsedTrial) {
+      return true;
+    }
+    return userProfile?.trialUsed || false;
+  }, [deviceUsedTrial, userProfile]);
+
   const isPremium = useMemo(() => {
     if (adminPremiumOverride) return true;
     if (userProfile?.isPremium) return true;
-    return isTrialActive(userProfile);
-  }, [userProfile, adminPremiumOverride]);
+    return trialActive;
+  }, [userProfile, adminPremiumOverride, trialActive]);
 
   const handleUpgrade = async () => {
     if (!user || upgrading) return;
@@ -4174,38 +4382,12 @@ export default function App() {
     }
   };
 
-  const handleLinkGoogle = async () => {
-    if (!user) return;
-    hapticFeedback(ImpactStyle.Medium);
-    try {
-      await albumService.linkGoogleAccount();
-      // "Think" a few seconds as requested
-      await new Promise(r => setTimeout(r, 2000));
-      // Link success happens via auth state change or manual update search
-      // To be safe, we mark it in profile
-      const googleUid = user.providerData.find(p => p.providerId === 'google.com')?.uid || user.uid;
-      await albumService.saveUserProfile(user.uid, { googleLinked: true, googleUid });
-      confetti({ particleCount: 50, spread: 60, origin: { y: 0.6 } });
-    } catch (e: any) {
-      console.error(e);
-      setError("Linking failed. Please try again.");
-    }
-  };
-
   const handleClaimTrial = async () => {
-    if (!user || userProfile?.trialUsed) return;
-    
+    if (!user || trialUsed) return;
     if (user.isAnonymous) {
-      alert(i18n.language.startsWith('es') 
-        ? "La prueba gratuita no está disponible en el Modo Temporal. Por favor registra una cuenta real."
-        : "Free trial is not available in Temporal Mode. Please register a real account.");
-      return;
-    }
-    
-    // Check if already linked with Google
-    const isGoogleUser = user.providerData.some(p => p.providerId === 'google.com');
-    if (!isGoogleUser) {
-      alert("You must link your Google account first!");
+      alert(isEs 
+        ? "Los usuarios invitados/anónimos no pueden reclamar periodos de prueba bajo ninguna circunstancia. Por favor, crea una cuenta registrada para ser elegible."
+        : "Guest/Anonymous users cannot claim a free trial under any circumstances. Please register a real account to become eligible.");
       return;
     }
 
@@ -4218,6 +4400,14 @@ export default function App() {
         alert(res.message || "Ocurrió un error al procesar el periodo de prueba.");
         return;
       }
+      
+      // Instantly reload local deviceTrialData
+      const docRef = doc(db, 'dispositivos_prueba_gratis', devId);
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        setDeviceTrialData(snap.data());
+      }
+      
       confetti({ particleCount: 150, spread: 70, origin: { y: 0.5 }, colors: ['#D4AF37', '#91022D'] });
     } catch (e: any) {
       console.error(e);
@@ -4241,52 +4431,80 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(false);
 
   useEffect(() => {
+    const fetchDeviceTrialData = async () => {
+      if (!user) {
+        setDeviceTrialData(null);
+        return;
+      }
+      try {
+        const devId = await albumService.getDeviceId();
+        if (devId) {
+          const docRef = doc(db, 'dispositivos_prueba_gratis', devId);
+          const snap = await getDoc(docRef);
+          if (snap.exists()) {
+            setDeviceTrialData(snap.data());
+          } else {
+            setDeviceTrialData({ exists: false });
+          }
+        }
+      } catch (e) {
+        console.error("Error fetching device trial data:", e);
+      }
+    };
+    fetchDeviceTrialData();
+  }, [user]);
+
+  useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u);
       setLoading(false);
       if (u) {
-        if (u.isAnonymous) {
-          // Setup dummy profile for anonymous users to block advanced features gracefully
-          setUserProfile({
-            displayName: "Invitado",
-            isPremium: false,
-            trialUsed: true,
-            isAnonymous: true
-          });
-          
-          // Background anti-fraud registration and validation
-          (async () => {
-            try {
-              const devId = await albumService.getDeviceId();
+        // Unified device checking in background
+        (async () => {
+          try {
+            const devId = await albumService.getDeviceId();
+            if (u.isAnonymous) {
               const hasPrevReg = await albumService.hasAnonymousDeviceAssociation(devId);
               const localInv = localStorage.getItem('local_album_inventory');
               
               if (hasPrevReg && (!localInv || localInv === '{}' || Object.keys(JSON.parse(localInv)).length === 0)) {
                 setShowMissingLocalInventoryModal(true);
               }
-              
-              // Register device in background
               await albumService.registerAnonymousDevice(u.uid);
-            } catch (err) {
-              console.error("Error checking/registering anonymous device:", err);
             }
-          })();
-          
-          return;
-        }
+          } catch (err) {
+            console.error("Error with background device operations:", err);
+          }
+        })();
 
         // Only save profile and setup real-time listeners if online
         if (navigator.onLine) {
-          albumService.saveUserProfile(u.uid, {
-            displayName: u.displayName,
-            email: u.email,
-            photoURL: u.photoURL
-          });
+          if (u.isAnonymous) {
+            albumService.saveUserProfile(u.uid, {
+              displayName: "Invitado",
+              isAnonymous: true
+            });
+          } else {
+            albumService.saveUserProfile(u.uid, {
+              displayName: u.displayName,
+              email: u.email,
+              photoURL: u.photoURL
+            });
+          }
         }
         
-        // Listen to user profile for badges/stats
-        const unsubUser = onSnapshot(doc(db, 'users', u.uid), (doc) => {
-          if (doc.exists()) setUserProfile(doc.data());
+        // Real-time snapshot listener
+        const unsubUser = onSnapshot(doc(db, 'users', u.uid), (snapDoc) => {
+          if (snapDoc.exists()) {
+            setUserProfile(snapDoc.data());
+          } else if (u.isAnonymous) {
+            setUserProfile({
+              displayName: "Invitado",
+              isPremium: false,
+              trialUsed: false,
+              isAnonymous: true
+            });
+          }
         });
         
         // Listen to pending messages for notification badge
@@ -4506,10 +4724,10 @@ export default function App() {
 
   const navigateView = (v: 'collection' | 'community' | 'stats') => {
     hapticFeedback(ImpactStyle.Light);
-    if (v === 'community' && user?.isAnonymous) {
+    if (v !== 'collection' && user?.isAnonymous) {
       alert(isEs
-        ? "La pestaña de Comunidad y el escáner/intercambio de Códigos QR están deshabilitados en el Modo Temporal. Por favor regístrate para usar estas funciones avanzadas."
-        : "The Community tab and QR Code comparisons are disabled in Temporal Mode. Please register a real account.");
+        ? "En el Modo Temporal, solo está permitido el Registro Básico de láminas de manera local. Por favor regístrate para habilitar las Estadísticas, la pestaña de Comunidad y otras funciones."
+        : "In Temporal Mode, only Basic local Sticker Registering is allowed. Please register an account to unlock Stats, Community, and other advanced integrations.");
       return;
     }
     setView(v);
@@ -5016,6 +5234,12 @@ export default function App() {
   }, [totalStats.obtained, user, totalStats.total]); // Added totalStats.total as dependency
 
   const loadRanking = async () => {
+    if (user?.isAnonymous) {
+      alert(isEs 
+        ? "La consulta del Ranking Global de coleccionistas está desactivada en perfiles de invitado/anónimos. Por favor regístrate." 
+        : "Global ranking tracking is deactivated for guest/anonymous profiles. Please register a real account.");
+      return;
+    }
     setShowRanking(true);
     setLoadingRanking(true);
     try {
@@ -5540,27 +5764,37 @@ export default function App() {
               </div>
 
               {/* Sub-Tab Navigation Bar */}
-              <div className="flex gap-1.5 p-1 bg-white/5 rounded-2xl border border-white/5 mb-6 shrink-0">
+              <div className="flex gap-1 p-1 bg-white/5 rounded-2xl border border-white/5 mb-6 shrink-0 flex-wrap md:flex-nowrap">
                 <button
                   onClick={() => setAdminActiveTab('settings')}
-                  className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 ${adminActiveTab === 'settings' ? 'bg-fifa-gold text-black shadow-lg shadow-fifa-gold/15' : 'text-gray-400 hover:text-white'}`}
+                  className={`flex-1 min-w-[70px] py-2 text-[10px] md:text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 ${adminActiveTab === 'settings' ? 'bg-fifa-gold text-black shadow-lg shadow-fifa-gold/15' : 'text-gray-400 hover:text-white'}`}
                 >
-                  <Settings size={14} />
+                  <Settings size={13} />
                   <span>{isEs ? 'Ajustes' : 'Settings'}</span>
                 </button>
                 <button
                   onClick={() => setAdminActiveTab('users')}
-                  className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 ${adminActiveTab === 'users' ? 'bg-fifa-gold text-black shadow-lg shadow-fifa-gold/15' : 'text-gray-400 hover:text-white'}`}
+                  className={`flex-1 min-w-[90px] py-2 text-[10px] md:text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 ${adminActiveTab === 'users' ? 'bg-fifa-gold text-black shadow-lg shadow-fifa-gold/15' : 'text-gray-400 hover:text-white'}`}
                 >
-                  <Users size={14} />
-                  <span>{isEs ? 'Coleccionistas' : 'Collectors'}</span>
+                  <Users size={13} />
+                  <span>{isEs ? 'Usuarios' : 'Users'}</span>
                 </button>
                 <button
                   onClick={() => setAdminActiveTab('stats')}
-                  className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 ${adminActiveTab === 'stats' ? 'bg-fifa-gold text-black shadow-lg shadow-fifa-gold/15' : 'text-gray-400 hover:text-white'}`}
+                  className={`flex-1 min-w-[70px] py-2 text-[10px] md:text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 ${adminActiveTab === 'stats' ? 'bg-fifa-gold text-black shadow-lg shadow-fifa-gold/15' : 'text-gray-400 hover:text-white'}`}
                 >
-                  <Activity size={14} />
+                  <Activity size={13} />
                   <span>{isEs ? 'Analíticas' : 'Stats'}</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setAdminActiveTab('trials');
+                    loadTrialsList();
+                  }}
+                  className={`flex-1 min-w-[75px] py-2 text-[10px] md:text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 ${adminActiveTab === 'trials' ? 'bg-fifa-gold text-black shadow-lg shadow-fifa-gold/15' : 'text-gray-400 hover:text-white'}`}
+                >
+                  <ShieldCheck size={13} />
+                  <span>{isEs ? 'Pruebas' : 'Trials'}</span>
                 </button>
               </div>
 
@@ -5808,71 +6042,279 @@ export default function App() {
                 {/* 2. USER MANAGER TAB */}
                 {adminActiveTab === 'users' && (
                   <div className="space-y-4">
-                    {/* Search Field */}
-                    <div className="relative">
-                      <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
-                      <input
-                        type="text"
-                        value={adminSearch}
-                        onChange={(e) => setAdminSearch(e.target.value)}
-                        placeholder={isEs ? "Filtrar por correo o nickname..." : "Search registered collector email or name..."}
-                        className="w-full bg-white/5 border border-white/5 rounded-2xl pl-11 pr-4 py-3 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-fifa-gold/40 transition-all"
-                      />
-                    </div>
-
-                    {/* Collectors Container */}
-                    <div className="bg-white/[0.01] border border-white/5 rounded-2xl p-2 max-h-[350px] overflow-y-auto space-y-2 divide-y divide-white/5">
-                      {adminMetricsLoading ? (
-                        <div className="py-12 flex flex-col items-center justify-center gap-3 text-gray-500">
-                          <Activity className="animate-spin text-fifa-gold" size={24} />
-                          <span className="text-xs font-mono tracking-widest uppercase">{isEs ? 'Accediendo a base de datos...' : 'Streaming from Firestore...'}</span>
+                    {selectedInspectUser ? (
+                      /* DETAILED USER INSPECTOR PANEL */
+                      <div className="space-y-4 bg-white/[0.02] border border-white/5 p-5 rounded-2xl">
+                        <div className="flex items-center justify-between border-b border-white/5 pb-3">
+                          <button
+                            onClick={() => setSelectedInspectUser(null)}
+                            className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white transition-colors"
+                          >
+                            <ArrowRight className="rotate-180" size={14} />
+                            <span>{isEs ? 'Volver a la lista' : 'Back to list'}</span>
+                          </button>
+                          <span className="text-[10px] uppercase font-black tracking-widest text-fifa-gold bg-fifa-gold/15 px-2 py-0.5 rounded border border-fifa-gold/20">
+                            {isEs ? 'Consola de Inspección' : 'Inspection Console'}
+                          </span>
                         </div>
-                      ) : adminUsers.length === 0 ? (
-                        <div className="py-12 text-center text-xs text-gray-500 font-sans">
-                          {isEs ? 'Aún no hay coleccionistas registrados.' : 'No collectors registered yet.'}
-                        </div>
-                      ) : (
-                        adminUsers
-                          .filter(u => {
-                            const queryStr = adminSearch.toLowerCase().trim();
-                            if (!queryStr) return true;
-                            const email = (u.email || "").toLowerCase();
-                            const name = (u.displayName || "").toLowerCase();
-                            return email.includes(queryStr) || name.includes(queryStr);
-                          })
-                          .map((colUser: any) => (
-                            <div key={colUser.id} className="flex items-center justify-between p-3.5 hover:bg-white/[0.02] rounded-xl transition-all">
-                              <div className="flex items-center gap-3 min-w-0">
-                                <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-fifa-gold/20 to-[#1e1402] border border-fifa-gold/30 flex items-center justify-center text-xs font-bold text-fifa-gold uppercase shrink-0">
-                                  {(colUser.displayName || colUser.email || '?')[0]}
-                                </div>
-                                <div className="min-w-0">
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="text-white font-bold text-xs truncate max-w-[150px] sm:max-w-[200px]">
-                                      {colUser.displayName || 'No Name'}
-                                    </span>
-                                    {colUser.isPremium && (
-                                      <Diamond fill="currentColor" className="text-fifa-gold animate-pulse shrink-0" size={12} />
-                                    )}
-                                  </div>
-                                  <span className="text-[10px] text-gray-500 block truncate max-w-[180px] sm:max-w-[240px] font-mono leading-tight">
-                                    {colUser.email || colUser.id}
-                                  </span>
-                                </div>
-                              </div>
 
-                              <div className="flex items-center gap-2">
-                                <button
-                                  onClick={() => handleToggleUserPremium(colUser.id, !!colUser.isPremium)}
-                                  className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all border ${colUser.isPremium ? 'bg-fifa-gold text-black border-fifa-gold' : 'bg-transparent text-gray-400 border-white/10 hover:border-fifa-gold/30 hover:text-white'}`}
-                                >
-                                  {colUser.isPremium ? 'Premium (PRO)' : 'Grant PRO'}
-                                </button>
-                              </div>
+                        <div className="flex items-start gap-4">
+                          <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-fifa-gold to-yellow-600 border-2 border-fifa-gold flex items-center justify-center text-lg font-black text-black uppercase shrink-0">
+                            {(selectedInspectUser.displayName || selectedInspectUser.email || '?')[0]}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <h3 className="text-white font-extrabold text-sm flex items-center gap-1.5 flex-wrap">
+                              {selectedInspectUser.displayName || 'No Name'}
+                              {selectedInspectUser.isPremium && (
+                                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-fifa-gold text-black text-[8px] font-black uppercase tracking-wider">
+                                  <Diamond fill="currentColor" size={8} />
+                                  Premium
+                                </span>
+                              )}
+                              {selectedInspectUser.isAnonymous && (
+                                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-500 text-white text-[8px] font-black uppercase tracking-wider">
+                                  GUEST
+                                </span>
+                              )}
+                            </h3>
+                            <p className="text-xs text-gray-400 truncate">{selectedInspectUser.email || (isEs ? 'Cuenta Temporal' : 'Temporary Guest Account')}</p>
+                            <p className="text-[9px] text-gray-600 font-mono select-all mt-1">UID: {selectedInspectUser.id}</p>
+                          </div>
+                        </div>
+
+                        {/* Premium Toggler */}
+                        <div className="flex items-center justify-between p-3.5 bg-white/5 border border-white/5 rounded-xl">
+                          <div>
+                            <span className="text-xs font-bold text-white block">{isEs ? 'Suscripción Premium (VIP)' : 'Premium Access Status (VIP)'}</span>
+                            <span className="text-[10px] text-gray-500 block">{isEs ? 'Habilita o revoca características completas para este usuario' : 'Toggle all premium features and estimators'}</span>
+                          </div>
+                          <button
+                            onClick={() => handleToggleUserPremium(selectedInspectUser.id, !!selectedInspectUser.isPremium)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all border ${selectedInspectUser.isPremium ? 'bg-fifa-gold text-black border-fifa-gold' : 'bg-transparent text-gray-400 border-white/10 hover:border-fifa-gold/30 hover:text-white'}`}
+                          >
+                            {selectedInspectUser.isPremium ? (isEs ? 'Quitar Premium' : 'Revoke PRO') : (isEs ? 'Otorgar Premium' : 'Grant PRO')}
+                          </button>
+                        </div>
+
+                        {/* Manual Progress Override */}
+                        <div className="p-4 bg-white/5 border border-white/5 rounded-xl space-y-3">
+                          <div>
+                            <span className="text-xs font-bold text-white block">{isEs ? 'Sobrescribir Progreso del Álbum' : 'Override Album Progress Percentage'}</span>
+                            <span className="text-[10px] text-gray-500 block">{isEs ? 'Modifica el porcentaje estadístico reportado en los rankings' : 'Manually adjust the collection level parsed in global logs'}</span>
+                          </div>
+                          <div className="flex gap-2">
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              value={inspectManualPct}
+                              onChange={(e) => setInspectManualPct(e.target.value)}
+                              placeholder="0"
+                              className="w-20 bg-black/60 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white text-center font-mono focus:outline-none focus:border-fifa-gold/40"
+                            />
+                            <button
+                              onClick={() => handleUpdateInspectUserPercentage(selectedInspectUser.id, parseInt(inspectManualPct) || 0)}
+                              className="flex-1 px-4 py-1.5 bg-white text-black rounded-lg text-xs font-bold uppercase tracking-wider hover:bg-gray-200 transition-colors"
+                            >
+                              {isEs ? 'Actualizar Progreso' : 'Update Progress'}
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* User Albums & Inventories telemetry */}
+                        <div className="space-y-2">
+                          <h4 className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">
+                            {isEs ? 'Álbumes y Telemetría del Coleccionista' : 'Collector Albums & Telemetry'}
+                          </h4>
+
+                          {inspectUserLoading ? (
+                            <div className="p-8 flex flex-col items-center justify-center gap-2">
+                              <Activity size={18} className="animate-spin text-fifa-gold" />
+                              <span className="text-[10px] text-gray-500 font-mono select-none uppercase tracking-wide">{isEs ? 'Sincronizando inventario...' : 'Loading active data...'}</span>
                             </div>
-                          ))
-                      )}
-                    </div>
+                          ) : (
+                            <div className="space-y-2">
+                              {inspectUserAlbums.length === 0 ? (
+                                <div className="p-4 rounded-xl bg-black/30 border border-white/5 text-center text-xs text-gray-500 italic">
+                                  {isEs ? 'Este usuario no tiene álbumes creados todavía.' : 'This collector has not initialized any albums yet.'}
+                                </div>
+                              ) : (
+                                <div className="space-y-2 font-sans text-left">
+                                  {inspectUserAlbums.map((alb: any) => {
+                                    const isTargetActive = alb.id === selectedInspectUser.stats?.activeAlbumId;
+                                    return (
+                                      <div key={alb.id} className="p-3 rounded-lg bg-black/40 border border-white/5 flex flex-col gap-2">
+                                        <div className="flex items-center justify-between">
+                                          <div className="min-w-0">
+                                            <span className="text-xs font-bold text-white block truncate">
+                                              {alb.name || (isEs ? 'Álbum sin nombre' : 'Unnamed Album')}
+                                            </span>
+                                            <span className="text-[9px] text-gray-500 font-mono block text-left">
+                                              ID: {alb.id} • {alb.cocaColaCount || 14} CC • {alb.mode === 'inverse' ? (isEs ? 'Modo Inverso ⇄' : 'Inverse Mode ⇄') : (isEs ? 'Normal' : 'Normal')}
+                                            </span>
+                                          </div>
+                                          {isTargetActive && (
+                                            <span className="text-[8px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full font-bold uppercase shrink-0">
+                                              {isEs ? 'Activo' : 'Active'}
+                                            </span>
+                                          )}
+                                        </div>
+
+                                        {isTargetActive && inspectUserInventory && (
+                                          <div className="grid grid-cols-3 gap-2 border-t border-white/5 pt-2 mt-1">
+                                            <div className="text-center bg-white/[2%] p-1.5 rounded">
+                                              <span className="text-[8px] block text-gray-500 font-mono uppercase">{isEs ? 'Obtenidas' : 'Unique'}</span>
+                                              <span className="text-xs font-bold font-mono text-white">
+                                                {Object.values(inspectUserInventory).filter((s: any) => s.status === 'obtained' || s.status === 'repeated').length}
+                                              </span>
+                                            </div>
+                                            <div className="text-center bg-white/[2%] p-1.5 rounded">
+                                              <span className="text-[8px] block text-gray-500 font-mono uppercase">{isEs ? 'Repetidas' : 'Repeated'}</span>
+                                              <span className="text-xs font-bold font-mono text-fifa-red">
+                                                {Object.values(inspectUserInventory).reduce((acc: number, s: any) => acc + (s.count > 1 ? s.count - 1 : 0), 0)}
+                                              </span>
+                                            </div>
+                                            <div className="text-center bg-white/[2%] p-1.5 rounded flex flex-col justify-center items-center">
+                                              <span className="text-[8px] block text-gray-500 font-mono uppercase">{isEs ? 'Progreso' : 'Rate'}</span>
+                                              <span className="text-xs font-bold font-mono text-fifa-gold">
+                                                {selectedInspectUser.stats?.completionPercentage || 0}%
+                                              </span>
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      /* MAIN USERS LIST */
+                      <>
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          {/* Search Field */}
+                          <div className="relative flex-1">
+                            <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+                            <input
+                              type="text"
+                              value={adminSearch}
+                              onChange={(e) => setAdminSearch(e.target.value)}
+                              placeholder={isEs ? "Filtrar por correo o nickname..." : "Search registered collector email or name..."}
+                              className="w-full bg-white/5 border border-white/5 rounded-2xl pl-11 pr-4 py-3 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-fifa-gold/40 transition-all font-medium"
+                            />
+                          </div>
+
+                          {/* Filters Selector */}
+                          <div className="flex gap-1 p-1 bg-white/5 border border-white/5 rounded-2xl shrink-0 items-center justify-between overflow-x-auto">
+                            {(['all', 'premium', 'basic', 'anonymous'] as const).map((filterT) => (
+                              <button
+                                key={filterT}
+                                onClick={() => setAdminUserFilter(filterT)}
+                                className={`px-2.5 py-1.5 text-[9px] uppercase font-black tracking-widest rounded-xl transition-all ${
+                                  adminUserFilter === filterT 
+                                    ? 'bg-fifa-gold text-black font-extrabold shadow-lg shadow-fifa-gold/10' 
+                                    : 'text-gray-400 hover:text-white bg-transparent'
+                                }`}
+                              >
+                                {filterT === 'all' ? (isEs ? 'Todos' : 'All') :
+                                 filterT === 'premium' ? 'VIP' :
+                                 filterT === 'basic' ? (isEs ? 'Reg.' : 'Reg.') :
+                                 (isEs ? 'Inv.' : 'Guest')}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Collectors Container */}
+                        <div className="bg-white/[0.01] border border-white/5 rounded-2xl p-2 max-h-[350px] overflow-y-auto space-y-1.5 divide-y divide-white/5 custom-scroller">
+                          {adminMetricsLoading ? (
+                            <div className="py-12 flex flex-col items-center justify-center gap-3 text-gray-500">
+                              <Activity className="animate-spin text-fifa-gold" size={24} />
+                              <span className="text-xs font-mono tracking-widest uppercase">{isEs ? 'Accediendo a base de datos...' : 'Streaming from Firestore...'}</span>
+                            </div>
+                          ) : adminUsers.length === 0 ? (
+                            <div className="py-12 text-center text-xs text-gray-500 font-sans">
+                              {isEs ? 'Aún no hay coleccionistas registrados.' : 'No collectors registered yet.'}
+                            </div>
+                          ) : (
+                            (() => {
+                              const filteredList = adminUsers
+                                .filter(u => {
+                                  const queryStr = adminSearch.toLowerCase().trim();
+                                  const email = (u.email || "").toLowerCase();
+                                  const name = (u.displayName || "").toLowerCase();
+                                  const matchesQuery = !queryStr || email.includes(queryStr) || name.includes(queryStr);
+
+                                  if (!matchesQuery) return false;
+
+                                  if (adminUserFilter === 'premium') return u.isPremium;
+                                  if (adminUserFilter === 'basic') return !u.isPremium && !u.isAnonymous;
+                                  if (adminUserFilter === 'anonymous') return u.isAnonymous;
+                                  return true;
+                                });
+
+                              if (filteredList.length === 0) {
+                                return (
+                                  <div className="py-8 text-center text-xs text-gray-500 italic text-sans">
+                                    {isEs ? 'Ningún usuario coincide con los filtros aplicados.' : 'No users match the selected filters.'}
+                                  </div>
+                                );
+                              }
+
+                              return filteredList.map((colUser: any) => (
+                                <div 
+                                  key={colUser.id} 
+                                  onClick={() => handleInspectUser(colUser)}
+                                  className="flex items-center justify-between p-3 hover:bg-white/[0.03] rounded-xl transition-all cursor-pointer group text-left"
+                                >
+                                  <div className="flex items-center gap-3 min-w-0">
+                                    <div className="w-8.5 h-8.5 rounded-full bg-gradient-to-tr from-fifa-gold/20 to-[#1e1402] border border-fifa-gold/30 flex items-center justify-center text-xs font-bold text-fifa-gold uppercase shrink-0 group-hover:scale-105 transition-transform">
+                                      {(colUser.displayName || colUser.email || '?')[0]}
+                                    </div>
+                                    <div className="min-w-0">
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className="text-white font-bold text-xs truncate max-w-[130px] sm:max-w-[200px] group-hover:text-fifa-gold transition-colors">
+                                          {colUser.displayName || (colUser.isAnonymous ? (isEs ? 'Invitado' : 'Guest') : 'No Name')}
+                                        </span>
+                                        {colUser.isPremium && (
+                                          <Diamond fill="currentColor" className="text-fifa-gold animate-pulse shrink-0" size={10} />
+                                        )}
+                                        {colUser.isAnonymous && (
+                                          <span className="text-[8px] px-1 bg-white/5 border border-white/10 rounded text-gray-400 font-mono shrink-0 scale-90">GUEST</span>
+                                        )}
+                                      </div>
+                                      <span className="text-[10px] text-gray-500 block truncate max-w-[180px] sm:max-w-[240px] font-mono leading-none mt-0.5 text-left">
+                                        {colUser.email || colUser.id}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-2 font-sans" onClick={(e) => e.stopPropagation()}>
+                                    <div className="text-right mr-2">
+                                      <span className="block text-[11px] font-mono font-bold text-gray-300">
+                                        {colUser.stats?.completionPercentage || 0}%
+                                      </span>
+                                      <span className="block text-[8px] text-gray-600 uppercase tracking-wider font-extrabold text-right">
+                                        {isEs ? 'Completas' : 'Rate'}
+                                      </span>
+                                    </div>
+                                    <button
+                                      onClick={() => handleToggleUserPremium(colUser.id, !!colUser.isPremium)}
+                                      className={`px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all border ${colUser.isPremium ? 'bg-fifa-gold text-black border-fifa-gold' : 'bg-transparent text-gray-400 border-white/10 hover:border-fifa-gold/30 hover:text-white'}`}
+                                    >
+                                      {colUser.isPremium ? 'PRO' : 'Grant PRO'}
+                                    </button>
+                                  </div>
+                                </div>
+                              ));
+                            })()
+                          )}
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
 
@@ -5946,6 +6388,64 @@ export default function App() {
                         <div>Database Sync:</div><div className="text-white text-right">Cloud Firestore</div>
                         <div>Active Key:</div><div className="text-fifa-gold text-right truncate">HIDDEN (API ENV)</div>
                       </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 4. ACTIVE TRIALS TAB */}
+                {adminActiveTab === 'trials' && (
+                  <div className="space-y-4">
+                    <div className="p-4 bg-white/[0.02] border border-white/5 rounded-2xl">
+                      <div className="flex items-center justify-between mb-4">
+                        <h4 className="text-xs uppercase font-mono font-black text-fifa-gold tracking-widest">
+                          {isEs ? 'Dispositivos de Prueba Gratis' : 'Free Trial Devices'}
+                        </h4>
+                        <button 
+                          onClick={loadTrialsList}
+                          disabled={adminTrialsLoading}
+                          className="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white rounded-xl text-xs transition-all font-bold"
+                        >
+                          {adminTrialsLoading ? (isEs ? 'Cargando...' : 'Loading...') : (isEs ? 'Actualizar' : 'Refresh')}
+                        </button>
+                      </div>
+
+                      {adminTrialsLoading ? (
+                        <div className="space-y-2 py-4">
+                          {[1, 2, 3].map((i) => (
+                            <div key={i} className="h-14 bg-white/5 rounded-xl animate-pulse" />
+                          ))}
+                        </div>
+                      ) : adminTrials.length === 0 ? (
+                        <div className="text-center py-8 text-gray-500 font-medium text-xs">
+                          {isEs ? 'No hay dispositivos registrados con prueba gratis actualmente.' : 'No devices currently registered with free trial.'}
+                        </div>
+                      ) : (
+                        <div className="space-y-2 max-h-[350px] overflow-y-auto custom-scrollbar pr-1">
+                          {adminTrials.map((trial) => (
+                            <div key={trial.id} className="p-4 bg-black/35 border border-white/5 rounded-xl flex items-center justify-between gap-3 text-xs hover:border-white/10 transition-colors">
+                              <div className="space-y-1 min-w-0 pr-2">
+                                <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                                  <span className="font-mono font-bold text-white truncate max-w-[200px]" title={trial.id}>{trial.id}</span>
+                                  <span className="bg-amber-500/10 text-amber-500 border border-amber-500/20 text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider flex-shrink-0">
+                                    Trial active
+                                  </span>
+                                </div>
+                                <div className="text-[10px] text-gray-500 font-mono space-y-0.5">
+                                  <div className="truncate">UID: <span className="text-gray-400 font-bold truncate max-w-[150px] inline-block align-bottom">{trial.uid}</span></div>
+                                  <div>{isEs ? 'Activación:' : 'Activation:'} <span className="text-gray-400 font-bold">{trial.activatedAtString || (isEs ? 'Hoy' : 'Today')}</span></div>
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => handleDeleteTrial(trial.id)}
+                                className="p-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 hover:text-red-400 rounded-xl transition-all active:scale-95 shrink-0 border border-red-500/15"
+                                title={isEs ? 'Eliminar Prueba' : 'Delete Trial'}
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -6051,7 +6551,7 @@ export default function App() {
                   {album.name}
                 </button>
               ))}
-              {albums.length < (isPremium ? 3 : 1) && (
+              {!user?.isAnonymous && albums.length < (isPremium ? 3 : 1) && (
                 <button 
                   onClick={handleCreateAlbum}
                   className="px-3.5 py-1.5 rounded-full text-xs font-bold text-gray-500 hover:text-white transition-all flex items-center gap-1 shrink-0 whitespace-nowrap"
@@ -6200,39 +6700,72 @@ export default function App() {
               transition={{ duration: 0.2 }}
               className="w-full"
             >
-              {!isPremium && <PremiumBanner onUpgrade={() => setShowPremiumModal(true)} type="offline" />}
-              
-              {!hideRPGWidget && (
-                <div className="mb-6">
-                  <RPGProgressWidget 
-                    obtained={totalStats.obtained}
-                    total={totalStats.total}
-                    repeated={totalStats.repeated}
-                    isEs={isEs}
-                    achievements={appAchievements}
-                    onScrollToMilestones={() => {
-                      setView('stats');
-                      setTimeout(() => {
-                        const section = document.getElementById('album-milestones-section');
-                        if (section) {
-                          section.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        }
-                      }, 150);
-                    }}
-                  />
+              {user?.isAnonymous ? (
+                <div className="mb-6 p-6 bg-gradient-to-br from-amber-500/10 via-[#1b1509] to-black border border-amber-500/30 rounded-[2rem] text-left relative overflow-hidden shadow-2xl">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/[0.04] rounded-full blur-3xl pointer-events-none" />
+                  <div className="flex flex-col sm:flex-row items-start gap-4">
+                    <div className="p-3 bg-amber-500/10 rounded-2xl text-amber-500 shrink-0">
+                      <ShieldAlert size={24} />
+                    </div>
+                    <div className="space-y-2 flex-1">
+                      <h4 className="text-base font-extrabold text-white flex items-center gap-2">
+                        {isEs ? 'Modo Temporal Activado' : 'Temporal Guest Mode Active'}
+                        <span className="text-[9px] font-mono tracking-widest bg-amber-500/20 text-amber-500 px-2 py-0.5 rounded border border-amber-500/30 uppercase font-black">GUEST</span>
+                      </h4>
+                      <p className="text-xs text-gray-400 leading-relaxed max-w-2xl">
+                        {isEs 
+                          ? 'Estás utilizando un perfil de invitado. En esta modalidad únicamente está habilitado el Registro Básico de láminas de manera local. Las demás funciones (Estadísticas avanzadas, Bazar/Intercambios QR, Rankings, Múltiples álbumes, Copia de seguridad en la nube y Periodos de prueba gratis) están completamente desactivadas.' 
+                          : 'You are using a temporary guest profile. In this mode, only basic local sticker registering is accessible. All other functions (Advanced Stats, QR Bazar/Swaps, Global Rankings, multiple albums, Cloud database backups, and free trials) are strictly deactivated.'}
+                      </p>
+                      <div className="pt-2 flex flex-wrap gap-2.5">
+                        <button 
+                          onClick={handleLogout}
+                          className="px-4.5 py-2.5 bg-fifa-gold hover:bg-yellow-400 text-black rounded-xl text-xs font-black uppercase tracking-wider transition-colors inline-flex items-center gap-1.5 shadow-lg shadow-fifa-gold/10"
+                        >
+                          <PlusCircle size={14} />
+                          {isEs ? 'Registrar Cuenta Completa' : 'Register Full Account'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              )}
+              ) : (
+                <>
+                  {!isPremium && <PremiumBanner onUpgrade={() => setShowPremiumModal(true)} type="offline" />}
+                  
+                  {!hideRPGWidget && (
+                    <div className="mb-6">
+                      <RPGProgressWidget 
+                        obtained={totalStats.obtained}
+                        total={totalStats.total}
+                        repeated={totalStats.repeated}
+                        isEs={isEs}
+                        achievements={appAchievements}
+                        onScrollToMilestones={() => {
+                          setView('stats');
+                          setTimeout(() => {
+                            const section = document.getElementById('album-milestones-section');
+                            if (section) {
+                              section.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            }
+                          }, 150);
+                        }}
+                      />
+                    </div>
+                  )}
 
-              <ExportActions 
-                inventory={inventory} 
-                isPremium={isPremium} 
-                onUpgradeRequest={() => setShowPremiumModal(true)} 
-                userName={user.displayName || user.email || 'Collector'} 
-                totalStats={totalStats}
-                profile={userProfile}
-                onExportPerformed={handleExportPerformed}
-                activeAlbum={activeAlbum}
-              />
+                  <ExportActions 
+                    inventory={inventory} 
+                    isPremium={isPremium} 
+                    onUpgradeRequest={() => setShowPremiumModal(true)} 
+                    userName={user.displayName || user.email || 'Collector'} 
+                    totalStats={totalStats}
+                    profile={userProfile}
+                    onExportPerformed={handleExportPerformed}
+                    activeAlbum={activeAlbum}
+                  />
+                </>
+              )}
 
               <div className="flex flex-col gap-4 mb-8">
                 <div className="flex flex-col md:flex-row gap-4">
@@ -6931,8 +7464,11 @@ export default function App() {
         loading={upgrading}
         profile={userProfile}
         user={user}
-        onLink={handleLinkGoogle}
         onClaim={handleClaimTrial}
+        trialActive={trialActive}
+        trialUsed={trialUsed}
+        deviceUsedTrial={deviceUsedTrial}
+        deviceTrialOwner={deviceTrialOwner}
       />
 
       <AnimatePresence>

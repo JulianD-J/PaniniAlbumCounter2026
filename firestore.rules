@@ -50,7 +50,7 @@ service cloud.firestore {
 
       allow create: if isOwner(userId) && isValidUser(incoming());
       
-      allow update: if isValidUser(incoming()) && (
+      allow update: if (isValidUser(incoming()) && (
         isOwner(userId) && (
           // Business logic transitions for owners
           (resource.data.get('trialUsed', false) == false || incoming().get('trialUsed', false) == true) &&
@@ -62,7 +62,7 @@ service cloud.firestore {
           incoming().diff(resource.data).affectedKeys().hasOnly(['stats', 'updatedAt']) &&
           incoming().get('stats', {}).diff(resource.data.get('stats', {})).affectedKeys().hasOnly(['completedSwaps'])
         )
-      );
+      )) || isAdmin();
 
       match /friends/{friendId} {
         allow read, write: if isOwner(userId);
@@ -112,7 +112,8 @@ service cloud.firestore {
         incoming().uid == request.auth.uid &&
         (incoming().prueba_utilizada == true) &&
         (incoming().get('activatedAt', request.time) == request.time || incoming().get('activatedAt', request.time) is string);
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if isAdmin();
     }
   }
 }
