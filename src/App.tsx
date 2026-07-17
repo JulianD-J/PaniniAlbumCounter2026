@@ -10,6 +10,7 @@ import confetti from 'canvas-confetti';
 import { auth, googleProvider, db } from './lib/firebase';
 import { 
   signInWithPopup, 
+  signInWithCredential,
   signOut, 
   onAuthStateChanged, 
   User, 
@@ -2930,6 +2931,7 @@ const CommunityView = ({
   const [friendAlbumId, setFriendAlbumId] = useState<string | null>(null);
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [isSwapSuccess, setIsSwapSuccess] = useState(false);
+  const [consentChallenge, setConsentChallenge] = useState<number | null>(null);
 
   // Challenge-Response Handshake custom hook
   const {
@@ -3022,20 +3024,29 @@ const CommunityView = ({
       alert(isEs ? "Por favor, selecciona al menos una lámina para realizar el intercambio." : "Please select at least one sticker to perform the swap.");
       return;
     }
+    const nextChallenge = generateNewChallenge();
+    setConsentChallenge(nextChallenge);
     setTypedPin("");
     setHandshakeError("");
     setIsSwapSuccess(false);
-    generateNewChallenge();
     setShowConsentModal(true);
   };
 
+  const closeConsentModal = () => {
+    resetHandshake();
+    setConsentChallenge(null);
+    setIsSwapSuccess(false);
+    setShowConsentModal(false);
+  };
+
   const handlePressDigit = (digit: string) => {
-    if (typedPin.length < 4) {
+    const activeChallenge = consentChallenge ?? challenge;
+    if (typedPin.length < 4 && activeChallenge !== null) {
       const newPin = typedPin + digit;
       setTypedPin(newPin);
       
       if (newPin.length === 4) {
-        const expectedPin = computeHandshakeResponse(challenge || 0);
+        const expectedPin = computeHandshakeResponse(activeChallenge);
         if (newPin === expectedPin) {
           handleCommitDirectTrade();
         } else {
@@ -3661,7 +3672,7 @@ const CommunityView = ({
               className="absolute inset-0 bg-black/85 backdrop-blur-md"
               onClick={() => {
                 if (!isSwapSuccess) {
-                  setShowConsentModal(false);
+                  closeConsentModal();
                 }
               }}
             />
@@ -3676,8 +3687,7 @@ const CommunityView = ({
                 <>
                   <button 
                     onClick={() => {
-                      resetHandshake();
-                      setShowConsentModal(false);
+                      closeConsentModal();
                     }}
                     className="absolute right-4 top-4 text-gray-500 hover:text-white transition-colors"
                   >
@@ -3704,7 +3714,7 @@ const CommunityView = ({
                       {isEs ? "1. Dile este RETO a tu amigo" : "1. Tell this CHALLENGE to friend"}
                     </span>
                     <strong className="text-3xl font-mono text-white tracking-[0.3em] block text-center pl-[0.3em] select-all animate-pulse drop-shadow-[0_2px_10px_rgba(212,175,55,0.25)]">
-                      {challenge}
+                      {consentChallenge ?? challenge ?? '---'}
                     </strong>
                     <span className="text-[10px] text-gray-500 block mt-2.5 leading-normal text-center">
                       {isEs 
@@ -3808,8 +3818,7 @@ const CommunityView = ({
                   <button
                     type="button"
                     onClick={() => {
-                      setShowConsentModal(false);
-                      setIsSwapSuccess(false);
+                      closeConsentModal();
                       setSelectedFriend(null);
                     }}
                     className="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-display font-black text-xs uppercase tracking-wider rounded-xl transition-all active:scale-[0.98] shadow-lg shadow-green-900/10"
@@ -3897,6 +3906,7 @@ const CommunityView = ({
           </div>
         )}
       </AnimatePresence>
+
     </div>
   );
 };
@@ -4318,21 +4328,25 @@ export default function App() {
       if (!Capacitor.isNativePlatform()) {
         throw new Error("El sistema de pagos solo está disponible en la aplicación Android.");
       }
-
-      let token = "";
+      
+      let purchaseToken = "";
       
       try {
-        const { value } = await BillingPlugin.launchBillingFlow({
+        const purchase = await BillingPlugin.launchBillingFlow({
           product: premiumSKU,
           type: "inapp"
         });
-        
-        if (!value) {
+
+        purchaseToken = (purchase as any).purchaseToken || (purchase as any).token || (purchase as any).value || "";
+
+        if (!purchaseToken) {
           throw new Error("No se recibió un token de compra válido.");
         }
-        
-        token = value;
         console.log("Native purchase success, token acquired.");
+
+        await BillingPlugin.sendAck({
+          purchaseToken
+        });
       } catch (nativeError: any) {
         console.error("Native billing failed", nativeError);
         throw new Error(nativeError.message || "La compra fue cancelada o falló.");
@@ -4341,7 +4355,7 @@ export default function App() {
       // 2. Mark as premium in Firestore
       await albumService.saveUserProfile(user.uid, { 
         isPremium: true, 
-        purchaseToken: token,
+        purchaseToken,
         purchaseDate: new Date().toISOString(),
         sku: premiumSKU
       });
@@ -4683,7 +4697,17 @@ export default function App() {
     setError("");
     try {
       if (Capacitor.isNativePlatform()) {
-        await FirebaseAuthentication.signInWithGoogle();
+        const result = await FirebaseAuthentication.signInWithGoogle();
+        const idToken = result.credential?.idToken;
+        if (!idToken) {
+          throw new Error("Google sign-in did not return an ID token.");
+        }
+
+        const accessToken = result.credential?.accessToken;
+        await signInWithCredential(
+          auth,
+          GoogleAuthProvider.credential(idToken, accessToken ?? undefined)
+        );
       } else {
         await signInWithPopup(auth, googleProvider);
       }
@@ -4720,7 +4744,15 @@ export default function App() {
     }
   };
 
-  const handleLogout = () => signOut(auth);
+  const handleLogout = async () => {
+    try {
+      if (Capacitor.isNativePlatform()) {
+        await FirebaseAuthentication.signOut();
+      }
+    } finally {
+      await signOut(auth);
+    }
+  };
 
   const navigateView = (v: 'collection' | 'community' | 'stats') => {
     hapticFeedback(ImpactStyle.Light);
